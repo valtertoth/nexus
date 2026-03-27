@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useConversations } from '@/hooks/useConversations'
 import { ConversationList } from '@/components/inbox/ConversationList'
+import { ChatPanel } from '@/components/chat/ChatPanel'
 import { ContactPanel } from '@/components/contacts/ContactPanel'
 import { MessageSquare, ArrowRight } from 'lucide-react'
 
@@ -18,17 +19,7 @@ export default function Inbox() {
       {/* Column 2: Chat Panel (flex-1) */}
       <div className="flex-1 min-w-0">
         {selectedConversation ? (
-          // ChatPanel will be created in Prompt 4
-          <div className="flex items-center justify-center h-full bg-zinc-50">
-            <div className="text-center">
-              <p className="text-sm text-zinc-500">
-                Chat com {selectedConversation.contact?.name || selectedConversation.contact?.wa_id}
-              </p>
-              <p className="text-xs text-zinc-400 mt-1">
-                Painel de chat será implementado no Prompt 4
-              </p>
-            </div>
-          </div>
+          <ChatPanel conversation={selectedConversation} />
         ) : (
           <div className="flex flex-col items-center justify-center h-full bg-zinc-50">
             <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-zinc-100 mb-4">
