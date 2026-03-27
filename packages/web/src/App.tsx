@@ -5,6 +5,7 @@ import { AuthProvider } from '@/components/auth/AuthProvider'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { MainLayout } from '@/components/layout/MainLayout'
 import Login from '@/pages/Login'
+import Inbox from '@/pages/Inbox'
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
@@ -27,7 +28,7 @@ export default function App() {
                 <MainLayout />
               </ProtectedRoute>
             }>
-              <Route path="/" element={<PlaceholderPage title="Inbox" />} />
+              <Route path="/" element={<Inbox />} />
               <Route path="/dashboard" element={<PlaceholderPage title="Dashboard" />} />
               <Route path="/contacts" element={<PlaceholderPage title="Contatos" />} />
               <Route path="/knowledge" element={<PlaceholderPage title="Base de Conhecimento" />} />
