@@ -3,12 +3,13 @@ import { Toaster } from 'sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthProvider } from '@/components/auth/AuthProvider'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
+import { MainLayout } from '@/components/layout/MainLayout'
 import Login from '@/pages/Login'
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
-    <div className="flex items-center justify-center h-screen bg-background">
-      <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
+    <div className="flex items-center justify-center h-full">
+      <h1 className="text-2xl font-semibold text-zinc-900">{title}</h1>
     </div>
   )
 }
@@ -20,32 +21,19 @@ export default function App() {
         <TooltipProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
-            {/* Protected routes */}
-            <Route path="/" element={
+            {/* Protected routes with layout */}
+            <Route element={
               <ProtectedRoute>
-                <PlaceholderPage title="Inbox" />
+                <MainLayout />
               </ProtectedRoute>
-            } />
-            <Route path="/dashboard" element={
-              <ProtectedRoute>
-                <PlaceholderPage title="Dashboard" />
-              </ProtectedRoute>
-            } />
-            <Route path="/knowledge" element={
-              <ProtectedRoute>
-                <PlaceholderPage title="Base de Conhecimento" />
-              </ProtectedRoute>
-            } />
-            <Route path="/analytics" element={
-              <ProtectedRoute>
-                <PlaceholderPage title="Analytics" />
-              </ProtectedRoute>
-            } />
-            <Route path="/settings" element={
-              <ProtectedRoute>
-                <PlaceholderPage title="Configurações" />
-              </ProtectedRoute>
-            } />
+            }>
+              <Route path="/" element={<PlaceholderPage title="Inbox" />} />
+              <Route path="/dashboard" element={<PlaceholderPage title="Dashboard" />} />
+              <Route path="/contacts" element={<PlaceholderPage title="Contatos" />} />
+              <Route path="/knowledge" element={<PlaceholderPage title="Base de Conhecimento" />} />
+              <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
+              <Route path="/settings" element={<PlaceholderPage title="Configurações" />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           <Toaster position="top-right" richColors />
