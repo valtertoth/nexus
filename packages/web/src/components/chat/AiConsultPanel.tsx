@@ -148,6 +148,13 @@ export function AiConsultPanel({ conversationId, open, onClose }: AiConsultPanel
           }
         }
       }
+      // Process any remaining buffer content
+      if (buffer.trim()) {
+        if (buffer.startsWith('data:') && currentEvent === 'text') {
+          const data = buffer.slice(5)
+          pendingData.push(data.startsWith(' ') ? data.slice(1) : data)
+        }
+      }
       flushData()
     } catch (err) {
       console.error('[AiConsult] Error:', err)

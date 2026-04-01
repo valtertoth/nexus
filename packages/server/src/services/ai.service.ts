@@ -43,7 +43,7 @@ export async function generateSuggestion(
     .eq('id', orgId)
     .single()
 
-  if (org && org.ai_tokens_used_this_month >= org.ai_monthly_token_limit) {
+  if (org && org.ai_monthly_token_limit != null && org.ai_tokens_used_this_month >= org.ai_monthly_token_limit) {
     throw new Error('Limite mensal de tokens IA atingido para esta organização.')
   }
 
@@ -341,7 +341,7 @@ export async function* streamSuggestion(
       .eq('id', orgId)
       .single()
 
-    if (org && org.ai_tokens_used_this_month >= org.ai_monthly_token_limit) {
+    if (org && org.ai_monthly_token_limit != null && org.ai_tokens_used_this_month >= org.ai_monthly_token_limit) {
       yield { type: 'error', data: 'Limite mensal de tokens IA atingido.' }
       return
     }

@@ -31,6 +31,7 @@ export function AiComposer({
   const [sendingAll, setSendingAll] = useState(false)
   const [countdown, setCountdown] = useState(5)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const sendingRef = useRef(false) // Guard against concurrent sends
 
   // Split text into segments on mount or text change
   useEffect(() => {
@@ -94,14 +95,14 @@ export function AiComposer({
 
   const handleSendOne = useCallback(async (id: string) => {
     cancelCountdown()
-    const segment = segments.find((s) => s.id === id)
-    if (!segment || segment.sent || !segment.text.trim()) return
+    if (sendingRef.current) return
 
-    setSegments((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, sending: true } : s))
-    )
-
-    onSendSegment(segment.text.trim(), { aiApproved: true })
+    setSegments((prev) => {
+      const seg = prev.find((s) => s.id === id)
+      if (!seg || seg.sent || seg.sending || !seg.text.trim()) return prev
+      onSendSegment(seg.text.trim(), { aiApproved: true })
+      return prev.map((s) => (s.id === id ? { ...s, sending: true } : s))
+    })
 
     // Mark as sent after a brief delay for visual feedback
     setTimeout(() => {
@@ -109,14 +110,24 @@ export function AiComposer({
         prev.map((s) => (s.id === id ? { ...s, sent: true, sending: false } : s))
       )
     }, 300)
-  }, [segments, onSendSegment, cancelCountdown])
+  }, [onSendSegment, cancelCountdown])
 
   const handleSendAll = useCallback(async () => {
     cancelCountdown()
-    const pending = segments.filter((s) => !s.sent && s.text.trim())
-    if (pending.length === 0) return
+    if (sendingRef.current) return
+    sendingRef.current = true
 
     setSendingAll(true)
+
+    // Snapshot pending segments from current state
+    let pending: Segment[] = []
+    setSegments((prev) => {
+      pending = prev.filter((s) => !s.sent && !s.sending && s.text.trim())
+      return prev
+    })
+
+    // Allow state to flush
+    await new Promise((r) => setTimeout(r, 0))
 
     for (let i = 0; i < pending.length; i++) {
       const seg = pending[i]
@@ -138,7 +149,8 @@ export function AiComposer({
     }
 
     setSendingAll(false)
-  }, [segments, onSendSegment, cancelCountdown])
+    sendingRef.current = false
+  }, [onSendSegment, cancelCountdown])
 
   const pendingCount = segments.filter((s) => !s.sent).length
   const allSent = pendingCount === 0 && segments.length > 0
