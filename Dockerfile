@@ -8,8 +8,8 @@ COPY packages/server/package.json packages/server/
 COPY packages/shared/package.json packages/shared/
 COPY packages/web/package.json packages/web/
 
-# Install dependencies (including tsx which is a devDependency needed at runtime)
-# We install all deps then prune, or we move tsx to prod deps via explicit install
+# Install ALL dependencies (including devDeps — tsx is needed at runtime)
+# NODE_ENV must NOT be production here so devDeps are installed
 RUN npm ci && \
     npm cache clean --force
 
@@ -17,8 +17,6 @@ RUN npm ci && \
 COPY packages/shared/ packages/shared/
 COPY packages/server/ packages/server/
 
-# Set production mode
-ENV NODE_ENV=production
 ENV PORT=3001
 
 EXPOSE 3001
