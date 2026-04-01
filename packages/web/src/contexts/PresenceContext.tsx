@@ -23,42 +23,41 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
   const { profile } = useAuthContext()
   const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([])
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-
-  const updatePresenceList = useCallback(
-    (state: Record<string, { userId: string; name: string; avatarUrl: string | null; onlineAt: string }[]>) => {
-      const users: PresenceUser[] = []
-      const seen = new Set<string>()
-      for (const presences of Object.values(state)) {
-        for (const p of presences) {
-          if (!seen.has(p.userId)) {
-            seen.add(p.userId)
-            users.push(p)
-          }
-        }
-      }
-      setOnlineUsers(users)
-    },
-    []
-  )
+  const profileRef = useRef(profile)
+  profileRef.current = profile
 
   useEffect(() => {
     if (!profile) return
 
+    const profileId = profile.id
+    const profileName = profile.name
+    const profileAvatar = profile.avatar_url
+
     const channel = supabase.channel('presence:online', {
-      config: { presence: { key: profile.id } },
+      config: { presence: { key: profileId } },
     })
 
     channel
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState<PresenceUser>()
-        updatePresenceList(state)
+        const users: PresenceUser[] = []
+        const seen = new Set<string>()
+        for (const presences of Object.values(state)) {
+          for (const p of presences) {
+            if (!seen.has(p.userId)) {
+              seen.add(p.userId)
+              users.push(p)
+            }
+          }
+        }
+        setOnlineUsers(users)
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await channel.track({
-            userId: profile.id,
-            name: profile.name,
-            avatarUrl: profile.avatar_url,
+            userId: profileId,
+            name: profileName,
+            avatarUrl: profileAvatar,
             onlineAt: new Date().toISOString(),
           })
         }
@@ -66,22 +65,28 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
 
     channelRef.current = channel
 
-    const heartbeat = setInterval(async () => {
+    // Heartbeat every 30s — use try/catch to prevent hanging
+    const heartbeat = setInterval(() => {
       if (channelRef.current) {
-        await channelRef.current.track({
-          userId: profile.id,
-          name: profile.name,
-          avatarUrl: profile.avatar_url,
+        channelRef.current.track({
+          userId: profileId,
+          name: profileName,
+          avatarUrl: profileAvatar,
           onlineAt: new Date().toISOString(),
+        }).catch(() => {
+          // Silently ignore heartbeat errors — channel will reconnect
         })
       }
     }, 30_000)
 
+    // Mark online in DB (fire-and-forget with error handling)
     supabase
       .from('users')
       .update({ is_online: true, last_seen_at: new Date().toISOString() })
-      .eq('id', profile.id)
-      .then()
+      .eq('id', profileId)
+      .then(({ error }) => {
+        if (error) console.warn('[Presence] Online update failed:', error.message)
+      })
 
     return () => {
       clearInterval(heartbeat)
@@ -92,10 +97,12 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
       supabase
         .from('users')
         .update({ is_online: false, last_seen_at: new Date().toISOString() })
-        .eq('id', profile.id)
-        .then()
+        .eq('id', profileId)
+        .then(({ error }) => {
+          if (error) console.warn('[Presence] Offline update failed:', error.message)
+        })
     }
-  }, [profile, updatePresenceList])
+  }, [profile?.id]) // Only re-run when user ID changes, not on every profile object change
 
   const isUserOnline = useCallback(
     (userId: string) => onlineUsers.some((u) => u.userId === userId),

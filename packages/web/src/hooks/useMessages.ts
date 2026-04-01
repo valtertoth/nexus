@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { supabase, getAuthHeaders } from '@/lib/supabase'
 import { useMessageStore } from '@/stores/messageStore'
@@ -24,6 +24,17 @@ export function useMessages(conversationId: string | null) {
 
   const messages = conversationId ? allMessages[conversationId] || [] : []
 
+  // Use refs for callbacks to avoid subscription churn
+  const addMessageRef = useRef(addMessage)
+  const updateMessageRef = useRef(updateMessage)
+  const setAiSuggestionRef = useRef(setAiSuggestion)
+  const updateConversationRef = useRef(updateConversation)
+
+  addMessageRef.current = addMessage
+  updateMessageRef.current = updateMessage
+  setAiSuggestionRef.current = setAiSuggestion
+  updateConversationRef.current = updateConversation
+
   // Fetch messages for a conversation
   const fetchMessages = useCallback(async (convId: string) => {
     const { data, error } = await supabase
@@ -37,13 +48,11 @@ export function useMessages(conversationId: string | null) {
       setMessages(convId, data as Message[])
 
       // Load existing AI suggestion from the latest contact message
-      // Show suggestion if it's on the last contact message and no agent replied after it
       const latestContactMsg = [...data]
         .reverse()
         .find((m) => m.sender_type === 'contact' && m.ai_suggested_response)
 
       if (latestContactMsg?.ai_suggested_response) {
-        // Check that no agent message was sent AFTER this contact message
         const contactMsgIndex = data.findIndex((m) => m.id === latestContactMsg.id)
         const hasAgentReplyAfter = data
           .slice(contactMsgIndex + 1)
@@ -67,28 +76,30 @@ export function useMessages(conversationId: string | null) {
       fetchMessages(conversationId)
       resetUnread(conversationId)
     }
-  }, [conversationId, fetchMessages, resetUnread])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId])
 
-  // Realtime: new messages + AI suggestion updates
+  // Realtime subscription — ONLY depends on conversationId
+  // Uses refs for store callbacks to prevent subscription churn
   useEffect(() => {
     if (!conversationId) return
 
+    const convId = conversationId
+
     const channel = supabase
-      .channel(`messages:${conversationId}`)
+      .channel(`messages:${convId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`,
+          filter: `conversation_id=eq.${convId}`,
         },
         (payload) => {
           const msg = payload.new as Message
-          addMessage(conversationId, msg)
-
-          // Update conversation preview
-          updateConversation(conversationId, {
+          addMessageRef.current(convId, msg)
+          updateConversationRef.current(convId, {
             last_message_preview: msg.content || '',
             last_message_at: msg.created_at,
           })
@@ -100,19 +111,18 @@ export function useMessages(conversationId: string | null) {
           event: 'UPDATE',
           schema: 'public',
           table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`,
+          filter: `conversation_id=eq.${convId}`,
         },
         (payload) => {
           const updated = payload.new as Message
-          updateMessage(conversationId, updated.id, updated)
+          updateMessageRef.current(convId, updated.id, updated)
 
-          // If AI suggestion arrived, show it
           if (updated.ai_suggested_response && updated.sender_type === 'contact') {
-            setAiSuggestion({
+            setAiSuggestionRef.current({
               text: updated.ai_suggested_response,
               sources: updated.ai_suggestion_sources || [],
               loading: false,
-              conversationId,
+              conversationId: convId,
             })
           }
         }
@@ -122,7 +132,7 @@ export function useMessages(conversationId: string | null) {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [conversationId, addMessage, updateMessage, setAiSuggestion, updateConversation])
+  }, [conversationId]) // Only conversationId — refs handle the rest
 
   // Send message
   const sendMessage = useCallback(async (

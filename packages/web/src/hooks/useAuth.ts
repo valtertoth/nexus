@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { User as SupabaseUser, Session } from '@supabase/supabase-js'
 import type { User } from '@nexus/shared'
@@ -10,6 +10,30 @@ interface AuthState {
   loading: boolean
 }
 
+/**
+ * Fetch profile with a timeout to prevent hanging.
+ */
+async function fetchProfileWithTimeout(userId: string, timeoutMs = 8000): Promise<User | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const { data } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single()
+      .abortSignal(controller.signal)
+
+    return data as User | null
+  } catch (err) {
+    console.warn('[Auth] Profile fetch timed out or failed:', err)
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export function useAuth() {
   const [state, setState] = useState<AuthState>({
     session: null,
@@ -18,50 +42,62 @@ export function useAuth() {
     loading: true,
   })
 
-  const fetchProfile = useCallback(async (userId: string) => {
-    const { data } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single()
-    return data as User | null
-  }, [])
+  const mountedRef = useRef(true)
 
   useEffect(() => {
+    mountedRef.current = true
+
     // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      let profile: User | null = null
-      if (session?.user) {
-        profile = await fetchProfile(session.user.id)
+    async function init() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+
+        let profile: User | null = null
+        if (session?.user) {
+          profile = await fetchProfileWithTimeout(session.user.id)
+        }
+
+        if (mountedRef.current) {
+          setState({
+            session,
+            authUser: session?.user ?? null,
+            profile,
+            loading: false,
+          })
+        }
+      } catch {
+        if (mountedRef.current) {
+          setState((prev) => ({ ...prev, loading: false }))
+        }
       }
-      setState({
-        session,
-        authUser: session?.user ?? null,
-        profile,
-        loading: false,
-      })
-    }).catch(() => {
-      setState(prev => ({ ...prev, loading: false }))
-    })
+    }
+
+    init()
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         let profile: User | null = null
         if (session?.user) {
-          profile = await fetchProfile(session.user.id)
+          profile = await fetchProfileWithTimeout(session.user.id)
         }
-        setState({
-          session,
-          authUser: session?.user ?? null,
-          profile,
-          loading: false,
-        })
+
+        if (mountedRef.current) {
+          setState({
+            session,
+            authUser: session?.user ?? null,
+            profile,
+            loading: false,
+          })
+        }
       }
     )
 
-    return () => subscription.unsubscribe()
-  }, [fetchProfile])
+    return () => {
+      mountedRef.current = false
+      subscription.unsubscribe()
+    }
+  }, []) // No dependencies — runs once
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -75,7 +111,6 @@ export function useAuth() {
     orgName: string,
     orgSlug: string,
   ) => {
-    // 1. Create auth user
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
@@ -83,7 +118,6 @@ export function useAuth() {
     if (authError) throw authError
     if (!authData.user) throw new Error('Falha ao criar usuário')
 
-    // 2. Call RPC to create org + profile (bypasses RLS)
     const { error: rpcError } = await supabase.rpc('signup_organization', {
       p_user_id: authData.user.id,
       p_user_email: email,

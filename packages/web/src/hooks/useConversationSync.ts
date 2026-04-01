@@ -15,38 +15,47 @@ const CONVERSATION_SELECT = `
  * Other components use useConversations() to read/filter the store.
  */
 export function useConversationSync() {
-  const { setConversations, add, update } = useConversationStore()
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const mountedRef = useRef(true)
 
+  // Use refs for store methods to avoid dependency churn
+  const storeRef = useRef(useConversationStore.getState())
+  storeRef.current = useConversationStore.getState()
+
   useEffect(() => {
     mountedRef.current = true
-    const { setLoading } = useConversationStore.getState()
 
     async function fetchAll() {
       try {
+        // Add AbortController with timeout to prevent hanging
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 15000)
+
         const { data, error } = await supabase
           .from('conversations')
           .select(CONVERSATION_SELECT)
           .order('last_message_at', { ascending: false, nullsFirst: false })
           .limit(500)
+          .abortSignal(controller.signal)
+
+        clearTimeout(timeout)
 
         if (error) {
           console.error('[ConversationSync] Fetch error:', error.message)
-          if (mountedRef.current) setLoading(false)
-          return
-        }
-
-        if (data && mountedRef.current) {
-          setConversations(data as ConversationWithRelations[])
+        } else if (data && mountedRef.current) {
+          storeRef.current.setConversations(data as ConversationWithRelations[])
         }
       } catch (err) {
         console.error('[ConversationSync] Fetch exception:', err)
-        if (mountedRef.current) setLoading(false)
+      } finally {
+        // Always set loading false — even on error
+        if (mountedRef.current) {
+          storeRef.current.setLoading(false)
+        }
       }
     }
 
-    // Always fetch data immediately — don't depend on realtime status
+    // Always fetch data immediately
     fetchAll()
 
     // Subscribe for realtime updates (best-effort, not blocking)
@@ -56,6 +65,7 @@ export function useConversationSync() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'conversations' },
         async (payload) => {
+          if (!mountedRef.current) return
           console.log('[ConversationSync] INSERT event received:', payload.new.id)
 
           // Small delay to ensure contact & related data are committed
@@ -67,18 +77,12 @@ export function useConversationSync() {
             .eq('id', payload.new.id)
             .single()
 
-          if (error) {
-            console.error('[ConversationSync] INSERT fetch error:', error.message)
-            return
-          }
+          if (error || !data || !mountedRef.current) return
 
-          if (data && mountedRef.current) {
-            // Deduplicate — avoid adding if already in store (race with fetchAll)
-            const existing = useConversationStore.getState().conversations
-            if (!existing.find((c) => c.id === data.id)) {
-              add(data as ConversationWithRelations)
-              console.log('[ConversationSync] New conversation added:', data.id)
-            }
+          // Deduplicate
+          const existing = useConversationStore.getState().conversations
+          if (!existing.find((c) => c.id === data.id)) {
+            storeRef.current.add(data as ConversationWithRelations)
           }
         }
       )
@@ -86,34 +90,28 @@ export function useConversationSync() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'conversations' },
         async (payload) => {
-          // Re-fetch with full relations
+          if (!mountedRef.current) return
+
           const { data, error } = await supabase
             .from('conversations')
             .select(CONVERSATION_SELECT)
             .eq('id', payload.new.id)
             .single()
 
-          if (error) {
-            console.error('[ConversationSync] UPDATE fetch error:', error.message)
-            return
-          }
+          if (error || !data || !mountedRef.current) return
 
-          if (data && mountedRef.current) {
-            // If conversation doesn't exist in store yet (e.g. reopened), add it
-            const existing = useConversationStore.getState().conversations
-            if (existing.find((c) => c.id === data.id)) {
-              update(payload.new.id as string, data as ConversationWithRelations)
-            } else {
-              add(data as ConversationWithRelations)
-              console.log('[ConversationSync] Conversation added via UPDATE:', data.id)
-            }
+          const existing = useConversationStore.getState().conversations
+          if (existing.find((c) => c.id === data.id)) {
+            storeRef.current.update(payload.new.id as string, data as ConversationWithRelations)
+          } else {
+            storeRef.current.add(data as ConversationWithRelations)
           }
         }
       )
       .subscribe((status) => {
         console.log('[ConversationSync] Subscription status:', status)
         if (status === 'CHANNEL_ERROR') {
-          console.error('[ConversationSync] Channel error — realtime updates may be delayed')
+          console.error('[ConversationSync] Channel error — will retry automatically')
         }
       })
 
@@ -126,5 +124,5 @@ export function useConversationSync() {
         channelRef.current = null
       }
     }
-  }, [setConversations, add, update])
+  }, []) // No dependencies — runs once, uses refs for store methods
 }

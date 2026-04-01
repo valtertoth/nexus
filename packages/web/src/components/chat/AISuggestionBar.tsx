@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Check, Pencil, X, Sparkles, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -27,6 +27,12 @@ export function AISuggestionBar({
   const [countdown, setCountdown] = useState(5)
   const [expanded, setExpanded] = useState(false)
 
+  // Use ref for onApprove to avoid re-creating the interval when parent re-renders
+  const onApproveRef = useRef(onApprove)
+  onApproveRef.current = onApprove
+  const textRef = useRef(text)
+  textRef.current = text
+
   // Auto-send countdown for automatic mode
   useEffect(() => {
     if (aiMode !== 'automatic' || loading) return
@@ -36,7 +42,7 @@ export function AISuggestionBar({
       setCountdown((c) => {
         if (c <= 1) {
           clearInterval(interval)
-          onApprove(text)
+          onApproveRef.current(textRef.current)
           return 0
         }
         return c - 1
@@ -44,7 +50,7 @@ export function AISuggestionBar({
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [aiMode, text, loading, onApprove])
+  }, [aiMode, text, loading]) // removed onApprove — using ref instead
 
   if (aiMode === 'off') return null
 
