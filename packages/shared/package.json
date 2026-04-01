@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "echo 'shared: no build needed (raw TS consumed directly)'"
+  },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
