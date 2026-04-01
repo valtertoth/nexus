@@ -10,20 +10,30 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@nexus/shared": "*",
-    "hono": "^4.7.0",
-    "@hono/node-server": "^1.14.0",
-    "@supabase/supabase-js": "^2.49.0",
-    "ai": "^4.3.0",
     "@ai-sdk/anthropic": "^1.2.0",
-    "openai": "^4.85.0",
+    "@anthropic-ai/sdk": "^0.80.0",
+    "@hono/node-server": "^1.14.0",
+    "@nexus/shared": "*",
+    "@supabase/supabase-js": "^2.49.0",
+    "@types/qrcode": "^1.5.6",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "ai": "^4.3.0",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.0",
-    "cors": "^2.8.5"
+    "hono": "^4.7.0",
+    "mammoth": "^1.12.0",
+    "openai": "^4.85.0",
+    "pdf-parse": "^2.4.5",
+    "pino": "^9.14.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "@types/pdf-parse": "^1.1.5",
     "tsx": "^4.19.0",
-    "vitest": "^3.0.0",
-    "@types/node": "^22.0.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   }
 }

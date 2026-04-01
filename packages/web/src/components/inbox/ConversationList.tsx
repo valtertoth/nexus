@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
-import { Search, Loader2, MessageSquare } from 'lucide-react'
+import { Search, MessageSquare } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
 
 const filterTabs = [
   { key: 'all', label: 'Todas' },
@@ -85,12 +86,21 @@ export function ConversationList() {
       {/* Conversation list */}
       <ScrollArea className="flex-1">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-5 h-5 animate-spin text-zinc-400" />
+          <div className="space-y-1 p-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-3 py-3 rounded-lg">
+                <Skeleton className="w-10 h-10 rounded-full shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-3.5 w-2/3" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+                <Skeleton className="h-3 w-8 shrink-0" />
+              </div>
+            ))}
           </div>
         ) : conversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-4">
-            <MessageSquare className="w-8 h-8 text-zinc-200 mb-3" />
+            <MessageSquare className="w-8 h-8 text-zinc-300 mb-3" />
             <p className="text-sm text-zinc-400 text-center">
               {filters.search
                 ? 'Nenhuma conversa encontrada'

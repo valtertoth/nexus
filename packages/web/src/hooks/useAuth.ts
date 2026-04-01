@@ -40,6 +40,8 @@ export function useAuth() {
         profile,
         loading: false,
       })
+    }).catch(() => {
+      setState(prev => ({ ...prev, loading: false }))
     })
 
     // Listen for auth changes

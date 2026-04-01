@@ -30,7 +30,7 @@ export default function Login() {
     setLoading(true)
     try {
       await signIn(loginEmail, loginPassword)
-      navigate('/', { replace: true })
+      navigate('/profile-select', { replace: true })
     } catch (err) {
       toast.error('Credenciais inválidas. Verifique email e senha.')
     } finally {

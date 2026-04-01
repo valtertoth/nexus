@@ -6,3 +6,21 @@ dist/
 *.log
 .DS_Store
 .vite/
+
+# Auth credentials
+.baileys-auth/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+
+# Test files
+test-audit.mjs
+
+# Server logs
+server*.log
+server*-err.log

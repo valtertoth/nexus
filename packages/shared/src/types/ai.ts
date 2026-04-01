@@ -8,7 +8,7 @@ export type { AiMode }
 
 export interface AiSuggestion {
   text: string
-  sources: AiSuggestionSource[]
+  sources: AiRagSource[]
   model: string
   tokens: {
     prompt: number
@@ -18,7 +18,7 @@ export interface AiSuggestion {
   latencyMs: number
 }
 
-export interface AiSuggestionSource {
+export interface AiRagSource {
   documentName: string
   chunkId: string
   similarity: number
@@ -52,7 +52,7 @@ export interface AiGenerateRequest {
 
 export interface AiGenerateResponse {
   suggestion: string
-  sources: AiSuggestionSource[]
+  sources: AiRagSource[]
   model: string
   promptTokens: number
   completionTokens: number

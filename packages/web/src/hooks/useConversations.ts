@@ -1,94 +1,28 @@
-import { useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
 import { useConversationStore, type ConversationWithRelations } from '@/stores/conversationStore'
+import { useActiveProfile } from '@/stores/profileStore'
 
+/**
+ * Read-only hook for consuming conversations from the store.
+ * Safe to call from multiple components — no side effects.
+ * Realtime sync is handled by useConversationSync() in MainLayout.
+ */
 export function useConversations() {
   const {
     conversations,
     selectedId,
     filters,
     loading,
-    setConversations,
     select,
-    add,
-    update,
     updateFilters,
     incrementUnread,
     resetUnread,
   } = useConversationStore()
+  const activeProfile = useActiveProfile()
 
-  // Fetch conversations with joins
-  const fetchConversations = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('conversations')
-      .select(`
-        *,
-        contact:contacts(*),
-        sector:sectors(*),
-        assigned_user:users(*)
-      `)
-      .order('last_message_at', { ascending: false, nullsFirst: false })
-      .limit(50)
-
-    if (!error && data) {
-      setConversations(data as ConversationWithRelations[])
-    }
-  }, [setConversations])
-
-  // Initial fetch
-  useEffect(() => {
-    fetchConversations()
-  }, [fetchConversations])
-
-  // Realtime subscription for conversations
-  useEffect(() => {
-    const channel = supabase
-      .channel('conversations-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'conversations',
-        },
-        async (payload) => {
-          // Fetch the full conversation with relations
-          const { data } = await supabase
-            .from('conversations')
-            .select(`
-              *,
-              contact:contacts(*),
-              sector:sectors(*),
-              assigned_user:users(*)
-            `)
-            .eq('id', payload.new.id)
-            .single()
-
-          if (data) {
-            add(data as ConversationWithRelations)
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'conversations',
-        },
-        (payload) => {
-          update(payload.new.id as string, payload.new as Partial<ConversationWithRelations>)
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [add, update])
-
-  // Filter conversations
+  // Filter conversations based on active filters
   const filteredConversations = conversations.filter((c) => {
+    // Profile sector filter: non-admin profiles see their sector + unassigned (no sector)
+    if (activeProfile?.sectorId && c.sector_id !== null && c.sector_id !== activeProfile.sectorId) return false
     if (filters.status !== 'all' && c.status !== filters.status) return false
     if (filters.sectorId !== 'all' && c.sector_id !== filters.sectorId) return false
     if (filters.assignedTo === 'unassigned' && c.assigned_to !== null) return false
@@ -121,6 +55,7 @@ export function useConversations() {
     updateFilters,
     incrementUnread,
     resetUnread,
-    refetch: fetchConversations,
   }
 }
+
+export type { ConversationWithRelations }

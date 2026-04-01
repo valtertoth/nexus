@@ -7,12 +7,13 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { Bot, MessageSquare, Power } from 'lucide-react'
+import { toast } from 'sonner'
 import type { AiMode } from '@nexus/shared'
 
-const modes: { value: AiMode; label: string; icon: React.ElementType; tooltip: string }[] = [
-  { value: 'automatic', label: 'Auto', icon: Bot, tooltip: 'IA responde automaticamente após 5 segundos' },
-  { value: 'dictated', label: 'Copiloto', icon: MessageSquare, tooltip: 'IA sugere, você decide se envia' },
-  { value: 'off', label: 'Off', icon: Power, tooltip: 'IA desligada' },
+const modes: { value: AiMode; label: string; icon: React.ElementType; tooltip: string; toast: string }[] = [
+  { value: 'automatic', label: 'Auto', icon: Bot, tooltip: 'IA responde automaticamente após 5 segundos', toast: 'IA no modo automático — respostas enviadas após 5s' },
+  { value: 'dictated', label: 'Copiloto', icon: MessageSquare, tooltip: 'IA sugere, você decide se envia', toast: 'IA no modo copiloto — sugestões para aprovação' },
+  { value: 'off', label: 'Off', icon: Power, tooltip: 'IA desligada', toast: 'IA desligada' },
 ]
 
 interface AIModeToggleProps {
@@ -24,14 +25,25 @@ export function AIModeToggle({ value, onChange }: AIModeToggleProps) {
   const { profile } = useAuthContext()
 
   async function handleChange(mode: AiMode) {
+    if (mode === value) return // No-op if same mode
     onChange?.(mode)
+
+    const modeConfig = modes.find((m) => m.value === mode)
+    if (modeConfig) {
+      toast.info(modeConfig.toast, { duration: 2000 })
+    }
 
     // Persist to user profile
     if (profile) {
-      await supabase
+      const { error } = await supabase
         .from('users')
         .update({ ai_mode: mode })
         .eq('id', profile.id)
+
+      if (error) {
+        console.error('[AIModeToggle] Failed to persist mode:', error.message)
+        toast.error('Erro ao salvar modo da IA')
+      }
     }
   }
 
@@ -42,19 +54,17 @@ export function AIModeToggle({ value, onChange }: AIModeToggleProps) {
         const isActive = value === mode.value
         return (
           <Tooltip key={mode.value} delayDuration={0}>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => handleChange(mode.value)}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors duration-150',
-                  isActive
-                    ? 'bg-white text-zinc-900 shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-700'
-                )}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{mode.label}</span>
-              </button>
+            <TooltipTrigger
+              onClick={() => handleChange(mode.value)}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors duration-150 cursor-pointer',
+                isActive
+                  ? 'bg-white text-zinc-900 shadow-sm'
+                  : 'text-zinc-500 hover:text-zinc-700'
+              )}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{mode.label}</span>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
               {mode.tooltip}

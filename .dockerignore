@@ -1,0 +1,16 @@
+node_modules
+.env
+.env.*
+!.env.example
+dist
+*.md
+.git
+.gitignore
+packages/web/dist
+packages/web/node_modules
+packages/web/src
+packages/web/.vite
+packages/server/dist
+packages/server/node_modules
+packages/shared/dist
+packages/shared/node_modules

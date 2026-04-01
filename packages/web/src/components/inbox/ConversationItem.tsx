@@ -1,7 +1,7 @@
 import { formatDistanceToNow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { getInitials, truncate } from '@nexus/shared'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
@@ -45,6 +45,7 @@ export function ConversationItem({ conversation, isSelected, onSelect }: Convers
       {/* Status indicator + Avatar */}
       <div className="relative shrink-0">
         <Avatar className="w-10 h-10">
+          {contact?.avatar_url && <AvatarImage src={contact.avatar_url} alt={contactName} />}
           <AvatarFallback className="bg-zinc-200 text-zinc-600 text-sm">
             {initials}
           </AvatarFallback>

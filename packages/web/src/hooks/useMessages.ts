@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
+import { toast } from 'sonner'
+import { supabase, getAuthHeaders } from '@/lib/supabase'
 import { useMessageStore } from '@/stores/messageStore'
 import { useConversationStore } from '@/stores/conversationStore'
 import type { Message } from '@nexus/shared'
@@ -32,8 +33,31 @@ export function useMessages(conversationId: string | null) {
 
     if (!error && data) {
       setMessages(convId, data as Message[])
+
+      // Load existing AI suggestion from the latest contact message
+      // Show suggestion if it's on the last contact message and no agent replied after it
+      const latestContactMsg = [...data]
+        .reverse()
+        .find((m) => m.sender_type === 'contact' && m.ai_suggested_response)
+
+      if (latestContactMsg?.ai_suggested_response) {
+        // Check that no agent message was sent AFTER this contact message
+        const contactMsgIndex = data.findIndex((m) => m.id === latestContactMsg.id)
+        const hasAgentReplyAfter = data
+          .slice(contactMsgIndex + 1)
+          .some((m) => m.sender_type === 'agent')
+
+        if (!hasAgentReplyAfter) {
+          setAiSuggestion({
+            text: latestContactMsg.ai_suggested_response,
+            sources: latestContactMsg.ai_suggestion_sources || [],
+            loading: false,
+            conversationId: convId,
+          })
+        }
+      }
     }
-  }, [setMessages])
+  }, [setMessages, setAiSuggestion])
 
   // Fetch when conversationId changes
   useEffect(() => {
@@ -111,15 +135,11 @@ export function useMessages(conversationId: string | null) {
 
     setSendingMessage(true)
     try {
-      const session = await supabase.auth.getSession()
-      const token = session.data.session?.access_token
+      const headers = getAuthHeaders()
 
       const response = await fetch('/api/messages/send', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify({
           conversationId,
           content: content.trim(),
@@ -131,10 +151,52 @@ export function useMessages(conversationId: string | null) {
       })
 
       if (!response.ok) {
-        throw new Error('Falha ao enviar mensagem')
+        const err = await response.json().catch(() => ({}))
+        throw new Error((err as { error?: string }).error || 'Falha ao enviar mensagem')
       }
 
       clearAiSuggestion()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha ao enviar mensagem'
+      toast.error(message)
+    } finally {
+      setSendingMessage(false)
+    }
+  }, [conversationId, setSendingMessage, clearAiSuggestion])
+
+  // Send media (image, video, audio, document)
+  const sendMedia = useCallback(async (
+    file: File,
+    contentType: 'image' | 'audio' | 'video' | 'document',
+    caption?: string
+  ) => {
+    if (!conversationId) return
+
+    setSendingMessage(true)
+    try {
+      const headers = getAuthHeaders()
+
+      const formData = new FormData()
+      formData.append('conversationId', conversationId)
+      formData.append('contentType', contentType)
+      formData.append('file', file)
+      if (caption) formData.append('caption', caption)
+
+      const response = await fetch('/api/messages/send-media', {
+        method: 'POST',
+        headers: { Authorization: headers.Authorization },
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        throw new Error((err as { error?: string }).error || 'Falha ao enviar mídia')
+      }
+
+      clearAiSuggestion()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha ao enviar mídia'
+      toast.error(message)
     } finally {
       setSendingMessage(false)
     }
@@ -145,6 +207,7 @@ export function useMessages(conversationId: string | null) {
     aiSuggestion: aiSuggestion?.conversationId === conversationId ? aiSuggestion : null,
     sendingMessage,
     sendMessage,
+    sendMedia,
     clearAiSuggestion,
     setAiSuggestion,
   }
