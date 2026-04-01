@@ -142,6 +142,9 @@ ai.post('/consult/:conversationId', async (c) => {
     )
 
     for await (const event of generator) {
+      if (event.type === 'error') {
+        console.error('[AI Consult] Error:', event.data)
+      }
       await stream.writeSSE({
         event: event.type,
         data: event.data,
