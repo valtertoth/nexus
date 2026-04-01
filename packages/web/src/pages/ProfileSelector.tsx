@@ -76,7 +76,8 @@ export default function ProfileSelector() {
           owner: 'admin', admin: 'admin', vendedor: 'vendedor',
           financeiro: 'financeiro', suporte: 'suporte', seller: 'vendedor',
         }
-        const sector = dbUser.sectors as { id: string; name: string } | null
+        const rawSectors = dbUser.sectors as { id: string; name: string }[] | { id: string; name: string } | null
+        const sector = Array.isArray(rawSectors) ? rawSectors[0] ?? null : rawSectors
         addProfile({
           id: dbUser.id,
           name: dbUser.name || user.email || 'Usuário',
