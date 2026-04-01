@@ -51,19 +51,24 @@ export default function Analytics() {
 
     setLoading(true)
     async function load() {
-      const [aiRes, agentRes] = await Promise.all([
-        supabase.rpc('ai_usage_summary', { p_org_id: orgId, p_days: period }),
-        supabase.rpc('agent_performance', { p_org_id: orgId, p_days: period }),
-      ])
+      try {
+        const [aiRes, agentRes] = await Promise.all([
+          supabase.rpc('ai_usage_summary', { p_org_id: orgId, p_days: period }),
+          supabase.rpc('agent_performance', { p_org_id: orgId, p_days: period }),
+        ])
 
-      if (aiRes.data) {
-        const summary = Array.isArray(aiRes.data) ? aiRes.data[0] : aiRes.data
-        setAiSummary(summary as AiUsageSummary)
+        if (aiRes.data) {
+          const summary = Array.isArray(aiRes.data) ? aiRes.data[0] : aiRes.data
+          setAiSummary(summary as AiUsageSummary)
+        }
+        if (agentRes.data) {
+          setAgents(agentRes.data as AgentPerf[])
+        }
+      } catch (err) {
+        console.error('[Analytics] Failed to load:', err)
+      } finally {
+        setLoading(false)
       }
-      if (agentRes.data) {
-        setAgents(agentRes.data as AgentPerf[])
-      }
-      setLoading(false)
     }
     load()
   }, [orgId, period])

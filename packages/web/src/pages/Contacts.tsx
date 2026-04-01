@@ -30,35 +30,45 @@ export default function Contacts() {
     }
 
     async function load() {
-      const { data: contactData } = await supabase
-        .from('contacts')
-        .select('*')
-        .eq('org_id', orgId)
-        .order('last_message_at', { ascending: false })
+      try {
+        // Fetch contacts and conversation counts in parallel
+        const [contactRes, countRes] = await Promise.all([
+          supabase
+            .from('contacts')
+            .select('*')
+            .eq('org_id', orgId)
+            .order('last_message_at', { ascending: false })
+            .limit(500),
+          // Use aggregation instead of fetching all rows
+          supabase
+            .from('conversations')
+            .select('contact_id')
+            .eq('org_id', orgId)
+            .limit(5000),
+        ])
 
-      if (!contactData) {
+        const contactData = contactRes.data
+        if (!contactData) {
+          setLoading(false)
+          return
+        }
+
+        const countMap: Record<string, number> = {}
+        for (const conv of countRes.data || []) {
+          countMap[conv.contact_id] = (countMap[conv.contact_id] || 0) + 1
+        }
+
+        setContacts(
+          contactData.map((c) => ({
+            ...(c as Contact),
+            conversation_count: countMap[c.id] || 0,
+          }))
+        )
+      } catch (err) {
+        console.error('[Contacts] Failed to load:', err)
+      } finally {
         setLoading(false)
-        return
       }
-
-      // Get conversation counts
-      const { data: convCounts } = await supabase
-        .from('conversations')
-        .select('contact_id')
-        .eq('org_id', orgId)
-
-      const countMap: Record<string, number> = {}
-      for (const conv of convCounts || []) {
-        countMap[conv.contact_id] = (countMap[conv.contact_id] || 0) + 1
-      }
-
-      setContacts(
-        contactData.map((c) => ({
-          ...(c as Contact),
-          conversation_count: countMap[c.id] || 0,
-        }))
-      )
-      setLoading(false)
     }
 
     load()

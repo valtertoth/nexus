@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Database, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthContext } from '@/components/auth/AuthProvider'
@@ -20,9 +20,11 @@ export default function Knowledge() {
   const [stats, setStats] = useState<Record<string, SectorStats>>({})
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [loading, setLoading] = useState(true)
+  const initialSelectedRef = useRef(false)
 
   const orgId = profile?.org_id || ''
 
+  // Load sectors — only depends on orgId
   useEffect(() => {
     if (!orgId) {
       setLoading(false)
@@ -30,50 +32,68 @@ export default function Knowledge() {
     }
 
     async function load() {
-      const { data } = await supabase
-        .from('sectors')
-        .select('*')
-        .eq('org_id', orgId)
-        .order('name')
+      try {
+        const { data } = await supabase
+          .from('sectors')
+          .select('*')
+          .eq('org_id', orgId)
+          .order('name')
 
-      const sectorList = (data || []) as Sector[]
-      setSectors(sectorList)
+        const sectorList = (data || []) as Sector[]
+        setSectors(sectorList)
 
-      if (sectorList.length > 0 && !selectedSectorId) {
-        setSelectedSectorId(sectorList[0].id)
+        // Auto-select first sector only on initial load
+        if (sectorList.length > 0 && !initialSelectedRef.current) {
+          setSelectedSectorId(sectorList[0].id)
+          initialSelectedRef.current = true
+        }
+      } catch (err) {
+        console.error('[Knowledge] Failed to load sectors:', err)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
     load()
-  }, [orgId, selectedSectorId])
+  }, [orgId]) // Removed selectedSectorId — was causing infinite loop
 
+  // Load stats for all sectors
   useEffect(() => {
     if (!orgId || sectors.length === 0) return
 
     async function loadStats() {
-      const newStats: Record<string, SectorStats> = {}
+      try {
+        // Parallel queries instead of sequential loop
+        const results = await Promise.all(
+          sectors.map(async (sector) => {
+            const [docRes, chunkRes] = await Promise.all([
+              supabase
+                .from('knowledge_documents')
+                .select('*', { count: 'exact', head: true })
+                .eq('org_id', orgId)
+                .eq('sector_id', sector.id),
+              supabase
+                .from('knowledge_chunks')
+                .select('*', { count: 'exact', head: true })
+                .eq('org_id', orgId)
+                .eq('sector_id', sector.id),
+            ])
 
-      for (const sector of sectors) {
-        const { count: docCount } = await supabase
-          .from('knowledge_documents')
-          .select('*', { count: 'exact', head: true })
-          .eq('org_id', orgId)
-          .eq('sector_id', sector.id)
+            return {
+              sectorId: sector.id,
+              documentCount: docRes.count || 0,
+              chunkCount: chunkRes.count || 0,
+            }
+          })
+        )
 
-        const { count: chunkCount } = await supabase
-          .from('knowledge_chunks')
-          .select('*', { count: 'exact', head: true })
-          .eq('org_id', orgId)
-          .eq('sector_id', sector.id)
-
-        newStats[sector.id] = {
-          sectorId: sector.id,
-          documentCount: docCount || 0,
-          chunkCount: chunkCount || 0,
+        const newStats: Record<string, SectorStats> = {}
+        for (const r of results) {
+          newStats[r.sectorId] = r
         }
+        setStats(newStats)
+      } catch (err) {
+        console.error('[Knowledge] Failed to load stats:', err)
       }
-
-      setStats(newStats)
     }
     loadStats()
   }, [orgId, sectors, refreshTrigger])
