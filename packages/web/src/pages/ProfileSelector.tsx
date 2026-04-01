@@ -56,6 +56,40 @@ export default function ProfileSelector() {
     }
   }, [activeProfile, navigate])
 
+  // Hydrate profiles from Supabase if localStorage is empty
+  useEffect(() => {
+    async function hydrateFromSupabase() {
+      if (profiles.length > 0) return
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: dbUsers } = await supabase
+        .from('users')
+        .select('id, name, role, sector_id, sectors(id, name)')
+        .eq('id', user.id)
+
+      if (!dbUsers || dbUsers.length === 0) return
+
+      for (const dbUser of dbUsers) {
+        const roleMap: Record<string, Profile['role']> = {
+          owner: 'admin', admin: 'admin', vendedor: 'vendedor',
+          financeiro: 'financeiro', suporte: 'suporte', seller: 'vendedor',
+        }
+        const sector = dbUser.sectors as { id: string; name: string } | null
+        addProfile({
+          id: dbUser.id,
+          name: dbUser.name || user.email || 'Usuário',
+          role: roleMap[dbUser.role] || 'vendedor',
+          sectorId: sector?.id || null,
+          sectorName: sector?.name || null,
+          avatarColor: AVATAR_COLORS[profiles.length % AVATAR_COLORS.length],
+        })
+      }
+    }
+    hydrateFromSupabase()
+  }, [profiles.length, addProfile])
+
   // Load sectors
   useEffect(() => {
     async function loadSectors() {
