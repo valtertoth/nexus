@@ -14,23 +14,22 @@ interface AuthState {
  * Fetch profile with a timeout to prevent hanging.
  */
 async function fetchProfileWithTimeout(userId: string, timeoutMs = 8000): Promise<User | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-
   try {
-    const { data } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single()
-      .abortSignal(controller.signal)
+    const result = await Promise.race([
+      supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Profile fetch timeout')), timeoutMs)
+      ),
+    ])
 
-    return data as User | null
+    return (result.data as User | null) ?? null
   } catch (err) {
     console.warn('[Auth] Profile fetch timed out or failed:', err)
     return null
-  } finally {
-    clearTimeout(timer)
   }
 }
 

@@ -157,8 +157,8 @@ export function useMarkupCalculator() {
 
     const result = calculateMarkup(input)
 
-    if ('error' in result && result.error) {
-      return { error: true, maxMargin: result.maxMargin }
+    if ('error' in result) {
+      return { error: true as const, maxMargin: result.maxMargin }
     }
 
     return {
@@ -166,7 +166,7 @@ export function useMarkupCalculator() {
       markupMultiplier: result.markupMultiplier,
       profitPerUnit: result.profitPerUnit,
       health: getMarginHealth(desiredMargin / 100),
-      error: false,
+      error: false as const,
     }
   }, [mode, purchasePrice, rates, desiredMargin])
 
