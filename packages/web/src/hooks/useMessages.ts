@@ -75,6 +75,15 @@ export function useMessages(conversationId: string | null) {
     if (conversationId) {
       fetchMessages(conversationId)
       resetUnread(conversationId)
+
+      // Persist unread reset to database so it survives page refresh
+      supabase
+        .from('conversations')
+        .update({ unread_count: 0 })
+        .eq('id', conversationId)
+        .then(({ error }) => {
+          if (error) console.warn('[Messages] Failed to reset unread in DB:', error)
+        })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId])
