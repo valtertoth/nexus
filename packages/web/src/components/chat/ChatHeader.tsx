@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   BrainCircuit,
   ShoppingCart,
+  Calculator,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getInitials, formatPhone } from '@nexus/shared'
@@ -38,6 +39,8 @@ interface ChatHeaderProps {
   onToggleConsult?: () => void
   consultOpen?: boolean
   onOpenQuote?: () => void
+  onToggleCalculator?: () => void
+  calculatorOpen?: boolean
 }
 
 const OUTCOME_BADGES: Record<ConversationOutcome, { label: string; className: string }> = {
@@ -46,7 +49,7 @@ const OUTCOME_BADGES: Record<ConversationOutcome, { label: string; className: st
   problem: { label: 'Problema', className: 'bg-amber-100 text-amber-700 border-amber-200' },
 }
 
-export function ChatHeader({ conversation, aiMode, onAiModeChange, onToggleConsult, consultOpen, onOpenQuote }: ChatHeaderProps) {
+export function ChatHeader({ conversation, aiMode, onAiModeChange, onToggleConsult, consultOpen, onOpenQuote, onToggleCalculator, calculatorOpen }: ChatHeaderProps) {
   const [outcomeOpen, setOutcomeOpen] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const { update: updateConversation } = useConversationStore()
@@ -182,6 +185,19 @@ export function ChatHeader({ conversation, aiMode, onAiModeChange, onToggleConsu
             aria-label="Criar orcamento"
           >
             <ShoppingCart className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={onToggleCalculator}
+            className={cn(
+              'inline-flex items-center justify-center rounded-md h-8 w-8 transition-colors',
+              calculatorOpen
+                ? 'bg-zinc-900 text-white'
+                : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+            )}
+            aria-label="Calculadora de markup"
+          >
+            <Calculator className="w-4 h-4" />
           </button>
 
           <DropdownMenu>

@@ -8,6 +8,7 @@ import { MessageComposer } from './MessageComposer'
 import { AiComposer } from './AiComposer'
 import { AiConsultPanel } from './AiConsultPanel'
 import { QuoteBuilder } from './QuoteBuilder'
+import { MarkupCalculator } from './MarkupCalculator'
 import { formatPhone } from '@nexus/shared'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
 import type { AiMode } from '@nexus/shared'
@@ -31,6 +32,7 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
   const [composerInitialValue, setComposerInitialValue] = useState('')
   const [consultOpen, setConsultOpen] = useState(false)
   const [quoteOpen, setQuoteOpen] = useState(false)
+  const [calculatorOpen, setCalculatorOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Load AI mode from DB on mount (always fresh, not stale profile cache)
@@ -82,6 +84,8 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
           onToggleConsult={() => setConsultOpen((v) => !v)}
           consultOpen={consultOpen}
           onOpenQuote={() => setQuoteOpen(true)}
+          onToggleCalculator={() => setCalculatorOpen((v) => !v)}
+          calculatorOpen={calculatorOpen}
         />
 
         {/* Messages */}
@@ -122,6 +126,16 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
           }
         />
       </div>
+
+      {/* Markup Calculator (slides in from right) */}
+      <MarkupCalculator
+        open={calculatorOpen}
+        onClose={() => setCalculatorOpen(false)}
+        onInsertInChat={(text) => {
+          setComposerInitialValue(text)
+          setCalculatorOpen(false)
+        }}
+      />
 
       {/* AI Consult Panel (slides in from right) */}
       <AiConsultPanel
