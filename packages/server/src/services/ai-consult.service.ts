@@ -151,6 +151,8 @@ ${contact.total_revenue ? `Receita histórica: R$ ${contact.total_revenue}` : ''
     ]
 
     // 9. Stream response
+    console.log(`[AI Consult] Calling model=${model}, messages=${aiMessages.length}, systemPrompt length=${systemPrompt.length}`)
+
     const result = await streamText({
       model: anthropic(model),
       system: systemPrompt,
@@ -159,12 +161,37 @@ ${contact.total_revenue ? `Receita histórica: R$ ${contact.total_revenue}` : ''
       maxTokens: 1024,
     })
 
+    let chunkCount = 0
     for await (const chunk of result.textStream) {
+      chunkCount++
       yield { type: 'text', data: chunk }
+    }
+
+    console.log(`[AI Consult] Stream complete. Chunks: ${chunkCount}`)
+
+    // If no chunks were produced, there may have been a silent failure
+    if (chunkCount === 0) {
+      // Await the full text to surface any hidden errors
+      try {
+        const fullText = await result.text
+        console.log(`[AI Consult] Full text (fallback): "${fullText.substring(0, 200)}"`)
+        if (fullText) {
+          yield { type: 'text', data: fullText }
+        } else {
+          const finishReason = await result.finishReason
+          console.error(`[AI Consult] No text produced. finishReason=${finishReason}`)
+          yield { type: 'error', data: 'A IA não gerou resposta. Tente novamente.' }
+        }
+      } catch (innerErr) {
+        console.error('[AI Consult] Hidden stream error:', innerErr)
+        const msg = innerErr instanceof Error ? innerErr.message : 'Erro ao processar resposta'
+        yield { type: 'error', data: msg }
+      }
     }
 
     yield { type: 'done', data: '' }
   } catch (err) {
+    console.error('[AI Consult] Error:', err)
     const message = err instanceof Error ? err.message : 'Erro desconhecido'
     yield { type: 'error', data: message }
   }
