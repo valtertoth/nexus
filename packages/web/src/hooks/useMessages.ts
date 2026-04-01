@@ -5,6 +5,8 @@ import { useMessageStore } from '@/stores/messageStore'
 import { useConversationStore } from '@/stores/conversationStore'
 import type { Message } from '@nexus/shared'
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+
 export function useMessages(conversationId: string | null) {
   const {
     messages: allMessages,
@@ -137,7 +139,7 @@ export function useMessages(conversationId: string | null) {
     try {
       const headers = getAuthHeaders()
 
-      const response = await fetch('/api/messages/send', {
+      const response = await fetch(`${API_BASE}/api/messages/send`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -182,7 +184,7 @@ export function useMessages(conversationId: string | null) {
       formData.append('file', file)
       if (caption) formData.append('caption', caption)
 
-      const response = await fetch('/api/messages/send-media', {
+      const response = await fetch(`${API_BASE}/api/messages/send-media`, {
         method: 'POST',
         headers: { Authorization: headers.Authorization },
         body: formData,

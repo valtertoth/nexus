@@ -8,6 +8,8 @@ import type { KnowledgeDocument } from '@nexus/shared'
 import { formatDistanceToNow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+
 interface DocumentListProps {
   orgId: string
   sectorId: string
@@ -82,7 +84,7 @@ export function DocumentList({ orgId, sectorId, refreshTrigger }: DocumentListPr
     try {
       const headers = getAuthHeaders()
 
-      const res = await fetch(`/api/knowledge/documents/${documentId}`, {
+      const res = await fetch(`${API_BASE}/api/knowledge/documents/${documentId}`, {
         method: 'DELETE',
         headers,
       })
@@ -100,7 +102,7 @@ export function DocumentList({ orgId, sectorId, refreshTrigger }: DocumentListPr
     try {
       const headers = getAuthHeaders()
 
-      await fetch(`/api/knowledge/documents/${documentId}/reprocess`, {
+      await fetch(`${API_BASE}/api/knowledge/documents/${documentId}/reprocess`, {
         method: 'POST',
         headers,
       })

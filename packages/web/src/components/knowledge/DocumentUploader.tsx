@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button'
 import { supabase, getAuthHeaders } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+
 interface FileUpload {
   file: File
   status: 'pending' | 'uploading' | 'processing' | 'done' | 'error'
@@ -104,7 +106,7 @@ export function DocumentUploader({ orgId, sectorId, onUploadComplete }: Document
         )
 
         // 3. Trigger ingestion
-        await fetch('/api/knowledge/process', {
+        await fetch(`${API_BASE}/api/knowledge/process`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ documentId: doc.id }),

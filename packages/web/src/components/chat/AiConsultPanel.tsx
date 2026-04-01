@@ -135,9 +135,12 @@ export function AiConsultPanel({ conversationId, open, onClose }: AiConsultPanel
           if (line.startsWith('event:')) {
             flushData()
             currentEvent = line.slice(6).trim()
-          } else if (line.startsWith('data:') && currentEvent === 'text') {
+          } else if (line.startsWith('data:') && (currentEvent === 'text' || currentEvent === 'error')) {
             const data = line.slice(5)
             const chunk = data.startsWith(' ') ? data.slice(1) : data
+            if (currentEvent === 'error') {
+              throw new Error(chunk || 'Erro na consulta IA')
+            }
             pendingData.push(chunk)
           } else if (line === '') {
             // Empty line = end of SSE event
