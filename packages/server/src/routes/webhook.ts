@@ -188,9 +188,13 @@ async function processIncomingMessage(
     }
   }
 
-  // 3b. Transcribe audio with Whisper (if audio and download succeeded)
+  // 3b. Check AI mode BEFORE expensive API calls (transcription/vision)
+  // This avoids spending money on OpenAI Whisper and Claude Vision when AI is off
+  const aiMode = await getAssignedUserAiMode(conversation.id)
+
+  // 3c. Transcribe audio with Whisper (only if AI is enabled)
   let audioTranscription: string | null = null
-  if (msg.type === 'audio' && mediaData?.buffer && mediaData.mimeType) {
+  if (aiMode !== 'off' && msg.type === 'audio' && mediaData?.buffer && mediaData.mimeType) {
     try {
       audioTranscription = await transcribeAudio(mediaData.buffer, mediaData.mimeType)
     } catch (err) {
@@ -198,9 +202,9 @@ async function processIncomingMessage(
     }
   }
 
-  // 3c. Analyze image with Claude Vision (if image and download succeeded)
+  // 3d. Analyze image with Claude Vision (only if AI is enabled)
   let imageAnalysis: string | null = null
-  if (msg.type === 'image' && mediaData?.buffer && mediaData.mimeType) {
+  if (aiMode !== 'off' && msg.type === 'image' && mediaData?.buffer && mediaData.mimeType) {
     try {
       imageAnalysis = await analyzeImage(mediaData.buffer, mediaData.mimeType, msg.caption)
     } catch (err) {
@@ -255,17 +259,14 @@ async function processIncomingMessage(
     // Non-critical — don't fail the whole pipeline
   }
 
-  // 8. Trigger AI suggestion if mode is not 'off'
+  // 8. Trigger AI suggestion if mode is not 'off' (aiMode already fetched in step 3b)
   // Generate for text messages always; for media, only if there's caption or context
   const shouldGenerateAi = msg.type === 'text' || (content && !content.startsWith('['))
-  if (content && shouldGenerateAi) {
-    const aiMode = await getAssignedUserAiMode(conversation.id)
-    if (aiMode !== 'off') {
-      setImmediate(() => {
-        generateSuggestion(conversation.id, content, conversation.sector_id ?? null, orgId)
-          .catch((err) => console.error('[Webhook] AI suggestion failed:', err))
-      })
-    }
+  if (content && shouldGenerateAi && aiMode !== 'off') {
+    setImmediate(() => {
+      generateSuggestion(conversation.id, content, conversation.sector_id ?? null, orgId)
+        .catch((err) => console.error('[Webhook] AI suggestion failed:', err))
+    })
   }
 
   console.log(`[Webhook] Message ${msg.messageId} from ${msg.from} processed`)
