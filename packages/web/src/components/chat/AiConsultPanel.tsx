@@ -100,7 +100,7 @@ export function AiConsultPanel({ conversationId, open, onClose }: AiConsultPanel
       if (!response.ok) throw new Error('Falha na consulta')
 
       const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
+      const decoder = new TextDecoder('utf-8')
 
       if (!reader) throw new Error('No reader')
 

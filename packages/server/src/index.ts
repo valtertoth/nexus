@@ -26,6 +26,21 @@ app.use('*', cors({
   credentials: true,
 }))
 
+// Ensure UTF-8 charset on all JSON/text responses
+app.use('*', async (c, next) => {
+  await next()
+  const ct = c.res.headers.get('Content-Type')
+  if (ct && !ct.includes('charset')) {
+    if (ct.includes('application/json')) {
+      c.res.headers.set('Content-Type', 'application/json; charset=utf-8')
+    } else if (ct.includes('text/plain')) {
+      c.res.headers.set('Content-Type', 'text/plain; charset=utf-8')
+    } else if (ct.includes('text/event-stream')) {
+      c.res.headers.set('Content-Type', 'text/event-stream; charset=utf-8')
+    }
+  }
+})
+
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
 
