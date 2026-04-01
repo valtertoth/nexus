@@ -4,9 +4,10 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import { supabase, getAuthHeaders } from '@/lib/supabase'
 import { useAuthContext } from '@/components/auth/AuthProvider'
-import { Loader2, ShoppingCart, Link2, Unplug, RefreshCw, Plus, X } from 'lucide-react'
+import { Loader2, ShoppingCart, Link2, Unplug, RefreshCw, Plus, X, Eye } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -30,6 +31,8 @@ export function QuoteSettingsTab() {
   const [paymentOptions, setPaymentOptions] = useState<string[]>(['PIX', 'Cartão', 'Boleto'])
   const [newPaymentOption, setNewPaymentOption] = useState('')
   const [productCount, setProductCount] = useState(0)
+  const [visualSearchEnabled, setVisualSearchEnabled] = useState(false)
+  const [savingVisualSearch, setSavingVisualSearch] = useState(false)
 
   useEffect(() => {
     if (!profile?.org_id) return
@@ -44,13 +47,14 @@ export function QuoteSettingsTab() {
     // Load org Shopify credentials
     const { data: org } = await supabase
       .from('organizations')
-      .select('shopify_domain')
+      .select('shopify_domain, visual_search_enabled')
       .eq('id', profile.org_id)
       .single()
 
     if (org) {
       setShopifyDomain(org.shopify_domain || '')
       setIsConnected(!!org.shopify_domain)
+      setVisualSearchEnabled(org.visual_search_enabled || false)
     }
 
     // Load quote settings
@@ -145,6 +149,40 @@ export function QuoteSettingsTab() {
 
   function removePaymentOption(opt: string) {
     setPaymentOptions((prev) => prev.filter((o) => o !== opt))
+  }
+
+  async function handleToggleVisualSearch(enabled: boolean) {
+    if (!profile?.org_id) return
+    setSavingVisualSearch(true)
+    setVisualSearchEnabled(enabled)
+
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .update({ visual_search_enabled: enabled })
+        .eq('id', profile.org_id)
+
+      if (error) throw error
+
+      if (enabled && productCount > 0) {
+        toast.success('Visual Search ativado! Gerando embeddings dos produtos...')
+        // Trigger embedding generation via sync
+        const headers = getAuthHeaders()
+        fetch(`${API_BASE}/api/quotes/shopify/sync`, {
+          method: 'POST',
+          headers,
+        }).catch(() => {})
+      } else if (enabled) {
+        toast.success('Visual Search ativado! Sincronize os produtos primeiro.')
+      } else {
+        toast.success('Visual Search desativado')
+      }
+    } catch {
+      setVisualSearchEnabled(!enabled)
+      toast.error('Erro ao alterar configuracao')
+    } finally {
+      setSavingVisualSearch(false)
+    }
   }
 
   if (loading) {
@@ -271,6 +309,42 @@ export function QuoteSettingsTab() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Visual Search */}
+      {isConnected && (
+        <Card className="border-zinc-200">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-violet-600 flex items-center justify-center">
+                  <Eye className="w-4.5 h-4.5 text-white" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Visual Search</CardTitle>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Identifica produtos do catalogo quando o cliente envia fotos
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={visualSearchEnabled}
+                onCheckedChange={handleToggleVisualSearch}
+                disabled={savingVisualSearch}
+              />
+            </div>
+          </CardHeader>
+          {visualSearchEnabled && (
+            <CardContent className="pt-0">
+              <div className="rounded-md bg-violet-50 border border-violet-100 px-3 py-2.5 text-xs text-violet-700 space-y-1">
+                <p className="font-medium">Como funciona:</p>
+                <p>Quando um cliente envia uma foto no WhatsApp e a IA esta ativa, o sistema analisa a imagem e busca produtos similares no seu catalogo Shopify.</p>
+                <p>O Copiloto recebe os produtos encontrados e sugere respostas mencionando-os automaticamente.</p>
+                <p className="text-violet-500 mt-1">Custo adicional: ~R$ 0,001 por busca (apenas embedding de texto). A analise de imagem ja e feita pelo Copiloto.</p>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       {/* Quote Settings */}
       <Card className="border-zinc-200">

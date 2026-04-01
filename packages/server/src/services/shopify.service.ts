@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../lib/supabase.js'
+import { generateProductEmbeddings } from './visual-search.service.js'
 
 interface ShopifyGraphQLProduct {
   id: string
@@ -166,6 +167,14 @@ export async function syncProducts(orgId: string): Promise<{ synced: number; err
   }
 
   console.log(`[Shopify] Synced ${synced} products, ${errors} errors for org ${orgId}`)
+
+  // Generate embeddings for visual search (only if enabled for this org — costs nothing if disabled)
+  setImmediate(() => {
+    generateProductEmbeddings(orgId).catch((err) =>
+      console.error('[Shopify] Product embedding generation failed:', err)
+    )
+  })
+
   return { synced, errors }
 }
 

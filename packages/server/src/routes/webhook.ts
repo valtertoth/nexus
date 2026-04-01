@@ -17,6 +17,7 @@ import { downloadAndStore } from '../services/media.service.js'
 import { transcribeAudio } from '../services/transcription.service.js'
 import { analyzeImage } from '../services/vision.service.js'
 import { generateSuggestion } from '../services/ai.service.js'
+import { searchProductsByImage, isVisualSearchEnabled, formatProductMatchesForAI } from '../services/visual-search.service.js'
 import { parseUtmFromText, applyPendingAttribution, saveContactAttribution, copyAttributionToConversation } from '../services/attribution.service.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { webhookRateLimit } from '../middleware/rateLimit.js'
@@ -212,6 +213,22 @@ async function processIncomingMessage(
     }
   }
 
+  // 3e. Visual Search — find similar products in catalog (only if enabled + image analyzed)
+  let productMatchContext = ''
+  if (imageAnalysis && msg.type === 'image') {
+    try {
+      const visualEnabled = await isVisualSearchEnabled(orgId)
+      if (visualEnabled) {
+        const matches = await searchProductsByImage(imageAnalysis, orgId)
+        if (matches.length > 0) {
+          productMatchContext = formatProductMatchesForAI(matches)
+        }
+      }
+    } catch (err) {
+      console.error('[Webhook] Visual search failed:', err)
+    }
+  }
+
   // 4. Build content text
   let content = msg.text || msg.caption || ''
   if (msg.type === 'location' && msg.location) {
@@ -225,6 +242,10 @@ async function processIncomingMessage(
   // Image: append analysis as AI context (caption is preserved as content)
   if (msg.type === 'image' && imageAnalysis) {
     content = content ? `${content}\n📷 ${imageAnalysis}` : `📷 ${imageAnalysis}`
+  }
+  // Append product matches to content (AI will see this as context)
+  if (productMatchContext) {
+    content += `\n\n${productMatchContext}`
   }
   if (!content && msg.type !== 'text') {
     content = `[${msg.type}]`
