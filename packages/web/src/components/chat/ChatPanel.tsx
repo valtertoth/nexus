@@ -98,9 +98,9 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
           <AiComposer
             text={aiSuggestion.text}
             sources={aiSuggestion.sources?.map(s => ({
-              documentName: 'doc_name' in s ? (s as Record<string, unknown>).doc_name as string : '',
-              similarity: 'similarity' in s ? (s as Record<string, unknown>).similarity as number : 0,
-              page: 'page' in s ? (s as Record<string, unknown>).page as number : undefined,
+              documentName: s.doc_name ?? '',
+              similarity: s.similarity ?? 0,
+              page: s.page,
             }))}
             aiMode={aiMode}
             onSendSegment={handleAiSendSegment}

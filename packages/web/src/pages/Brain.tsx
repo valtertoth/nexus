@@ -263,7 +263,7 @@ export function BrainPage() {
             className="h-8 pl-8 text-xs"
           />
         </div>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+        <Select value={categoryFilter} onValueChange={(v) => { if (v) setCategoryFilter(v) }}>
           <SelectTrigger className="h-8 w-52 text-xs">
             <SelectValue>
               {categoryFilter === 'all'
@@ -446,7 +446,6 @@ function CategorySection({
 function DirectiveCard({
   directive,
   sectors,
-  config,
   onToggle,
   onEdit,
   onDelete,
@@ -660,7 +659,7 @@ function DirectiveDialog({
             <Label className="text-xs">Categoria</Label>
             <Select
               value={form.category}
-              onValueChange={(v) => setForm((p) => ({ ...p, category: v }))}
+              onValueChange={(v) => { if (v) setForm((p) => ({ ...p, category: v })) }}
             >
               <SelectTrigger className="h-9 text-sm">
                 <SelectValue />

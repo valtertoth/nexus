@@ -12,7 +12,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     detectSessionInUrl: true,
     // Bypass navigator lock to avoid cross-tab lock contention in dev
-    lock: (_name: string, _acquireTimeout: number, fn: () => Promise<void>) => fn(),
+    lock: <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>) => fn(),
   },
 })
 

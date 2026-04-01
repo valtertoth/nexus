@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Database, FileText, Loader2 } from 'lucide-react'
+import { Database, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import { DocumentUploader } from '@/components/knowledge/DocumentUploader'

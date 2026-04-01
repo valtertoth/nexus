@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,8 +11,6 @@ import {
 } from '@/components/ui/select'
 import {
   TrendingUp,
-  TrendingDown,
-  Target,
   DollarSign,
   Megaphone,
   Users,
@@ -20,7 +18,6 @@ import {
   RefreshCw,
   BarChart3,
   ArrowRight,
-  Clock,
   GitMerge,
 } from 'lucide-react'
 import { supabase, getAuthHeaders } from '@/lib/supabase'
@@ -159,7 +156,7 @@ export function Attribution() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Select value={channelFilter} onValueChange={setChannelFilter}>
+            <Select value={channelFilter} onValueChange={(v) => { if (v) setChannelFilter(v) }}>
               <SelectTrigger className="h-8 w-36 text-xs">
                 <SelectValue>
                   {channelFilter === 'all'

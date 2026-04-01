@@ -112,7 +112,7 @@ export function Sidebar() {
                 {section.items.map((item) => {
                   const Icon = item.icon
                   return (
-                    <Tooltip key={item.to} delayDuration={0}>
+                    <Tooltip key={item.to}>
                       <TooltipTrigger
                         render={
                           <NavLink
@@ -163,7 +163,7 @@ export function Sidebar() {
           {devNavItems.map((item) => {
             const Icon = item.icon
             return (
-              <Tooltip key={item.to} delayDuration={0}>
+              <Tooltip key={item.to}>
                 <TooltipTrigger
                   render={
                     <NavLink

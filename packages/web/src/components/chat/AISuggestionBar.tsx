@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Check, Pencil, X, Sparkles, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { truncate } from '@nexus/shared'
+
 import type { AiMode } from '@nexus/shared'
 
 interface AISuggestionBarProps {

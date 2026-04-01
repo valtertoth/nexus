@@ -53,7 +53,7 @@ export function AIModeToggle({ value, onChange }: AIModeToggleProps) {
         const Icon = mode.icon
         const isActive = value === mode.value
         return (
-          <Tooltip key={mode.value} delayDuration={0}>
+          <Tooltip key={mode.value}>
             <TooltipTrigger
               onClick={() => handleChange(mode.value)}
               className={cn(

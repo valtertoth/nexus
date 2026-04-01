@@ -88,7 +88,7 @@ const PERIODS = [
 
 
 export function Intelligence() {
-  const { profile } = useAuthContext()
+  const { profile: _profile } = useAuthContext()
   const [period, setPeriod] = useState(30)
   const [sectorFilter, setSectorFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -154,8 +154,6 @@ export function Intelligence() {
   const formatCurrency = (v: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
-  const confidenceColor = (c: number) =>
-    c >= 0.85 ? 'text-emerald-600' : c >= 0.7 ? 'text-amber-600' : 'text-zinc-400'
 
   return (
     <div className="flex flex-col h-full overflow-auto bg-zinc-50">
@@ -276,7 +274,7 @@ export function Intelligence() {
               Insights extraídos pela IA
             </h2>
             <div className="flex items-center gap-2">
-              <Select value={sectorFilter} onValueChange={setSectorFilter}>
+              <Select value={sectorFilter} onValueChange={(v) => { if (v) setSectorFilter(v) }}>
                 <SelectTrigger className="h-7 w-36 text-xs">
                   <SelectValue>
                     {sectorFilter === 'all'
@@ -293,7 +291,7 @@ export function Intelligence() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <Select value={typeFilter} onValueChange={(v) => { if (v) setTypeFilter(v) }}>
                 <SelectTrigger className="h-7 w-44 text-xs">
                   <SelectValue>
                     {typeFilter === 'all'

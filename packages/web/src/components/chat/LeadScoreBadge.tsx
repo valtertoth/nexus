@@ -29,7 +29,7 @@ export function LeadScoreBadge({ score, size = 'sm', showLabel = false }: LeadSc
   const textSize = size === 'sm' ? 'text-[10px]' : 'text-xs'
 
   return (
-    <Tooltip delayDuration={300}>
+    <Tooltip>
       <TooltipTrigger
         render={<span />}
         className={cn(

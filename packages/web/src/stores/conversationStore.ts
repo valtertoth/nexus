@@ -3,8 +3,8 @@ import type { Conversation, Contact, Sector, User, ConversationStatus } from '@n
 
 export interface ConversationWithRelations extends Conversation {
   contact: Contact
-  sector?: Sector | null
-  assigned_user?: User | null
+  sector?: Sector
+  assigned_user?: User
 }
 
 interface ConversationFilters {

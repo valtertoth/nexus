@@ -227,7 +227,7 @@ export function ConversationTagsDisplay({ tags }: { tags: ConversationTag[] }) {
           key={tag.tag_slug}
           className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-100 text-zinc-500"
         >
-          {tag.emoji && `${tag.emoji} `}
+          {'emoji' in tag && (tag as Record<string, unknown>).emoji ? `${(tag as Record<string, unknown>).emoji} ` : ''}
           {tag.tag_label}
         </span>
       ))}
