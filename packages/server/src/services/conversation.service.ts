@@ -160,21 +160,35 @@ export async function updateConversationWithMessage(
     wa_service_window_expires_at: windowExpires.toISOString(),
   }
 
-  if (incrementUnread) {
-    // Use RPC or raw SQL to atomically increment
-    const { data: conv } = await supabaseAdmin
-      .from('conversations')
-      .select('unread_count')
-      .eq('id', conversationId)
-      .single()
-
-    updateData.unread_count = (conv?.unread_count || 0) + 1
-  }
-
+  // Update conversation fields (without unread_count — that's handled atomically)
   await supabaseAdmin
     .from('conversations')
     .update(updateData)
     .eq('id', conversationId)
+
+  // Atomically increment unread_count via RPC (avoids read-then-write race condition).
+  // RPC defined in migration 007_production_hardening.sql.
+  // Fallback: if the RPC call fails, do a non-atomic read+write.
+  if (incrementUnread) {
+    const { error: rpcError } = await supabaseAdmin.rpc('increment_unread_count', {
+      conv_id: conversationId,
+    })
+
+    if (rpcError) {
+      // Fallback: non-atomic increment (small race window, better than crashing)
+      console.warn('[Conversation] increment_unread_count RPC not available, using fallback:', rpcError.message)
+      const { data: conv } = await supabaseAdmin
+        .from('conversations')
+        .select('unread_count')
+        .eq('id', conversationId)
+        .single()
+
+      await supabaseAdmin
+        .from('conversations')
+        .update({ unread_count: (conv?.unread_count || 0) + 1 })
+        .eq('id', conversationId)
+    }
+  }
 }
 
 /**

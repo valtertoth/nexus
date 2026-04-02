@@ -24,6 +24,46 @@ import { webhookRateLimit } from '../middleware/rateLimit.js'
 
 const webhook = new Hono()
 
+/**
+ * Retry wrapper for critical async operations.
+ * Retries with linear backoff (delayMs * attempt).
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries = 2,
+  delayMs = 1000
+): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      if (attempt > maxRetries) {
+        console.error(`[Webhook] ${label} failed after ${maxRetries + 1} attempts:`, err)
+        throw err
+      }
+      console.warn(`[Webhook] ${label} attempt ${attempt} failed, retrying in ${delayMs * attempt}ms...`)
+      await new Promise(r => setTimeout(r, delayMs * attempt))
+    }
+  }
+  throw new Error('unreachable')
+}
+
+/**
+ * Wrap a promise with a timeout. Rejects with a descriptive error if exceeded.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`[Webhook] ${label} timed out after ${ms}ms`))
+    }, ms)
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => clearTimeout(timer))
+  })
+}
+
 // GET /webhook — Meta verification challenge
 webhook.get('/', (c) => {
   const mode = c.req.query('hub.mode')
@@ -78,45 +118,54 @@ webhook.post('/', webhookRateLimit, async (c) => {
 })
 
 async function processWebhook(body: WebhookPayload): Promise<void> {
-  const { messages, statuses, phoneNumberId } = parseWebhookPayload(body)
+  try {
+    const { messages, statuses, phoneNumberId } = parseWebhookPayload(body)
 
-  if (!phoneNumberId) return
+    if (!phoneNumberId) return
 
-  // Find org by phone_number_id
-  const { data: org } = await supabaseAdmin
-    .from('organizations')
-    .select('id, wa_access_token_encrypted')
-    .eq('wa_phone_number_id', phoneNumberId)
-    .single()
+    // Find org by phone_number_id (with retry for transient DB errors)
+    const { data: org } = await withRetry(
+      async () => {
+        const res = await supabaseAdmin
+          .from('organizations')
+          .select('id, wa_access_token_encrypted')
+          .eq('wa_phone_number_id', phoneNumberId)
+          .single()
+        if (!res.data) throw new Error(`No org for phone_number_id: ${phoneNumberId}`)
+        return res
+      },
+      'org lookup',
+      1,
+      500
+    )
 
-  if (!org) {
-    console.warn(`[Webhook] No org found for phone_number_id: ${phoneNumberId}`)
-    return
-  }
+    const orgId = org.id
 
-  const orgId = org.id
+    // Decrypt access token for media downloads
+    const { data: accessToken } = await supabaseAdmin.rpc('decrypt_wa_token', {
+      encrypted: org.wa_access_token_encrypted,
+    })
 
-  // Decrypt access token for media downloads
-  const { data: accessToken } = await supabaseAdmin.rpc('decrypt_wa_token', {
-    encrypted: org.wa_access_token_encrypted,
-  })
-
-  // Process incoming messages
-  for (const msg of messages) {
-    try {
-      await processIncomingMessage(orgId, msg, accessToken as string)
-    } catch (err) {
-      console.error(`[Webhook] Error processing message ${msg.messageId}:`, err)
+    // Process incoming messages
+    for (const msg of messages) {
+      try {
+        await processIncomingMessage(orgId, msg, accessToken as string)
+      } catch (err) {
+        console.error(`[Webhook] Error processing message ${msg.messageId}:`, err)
+      }
     }
-  }
 
-  // Process status updates
-  for (const status of statuses) {
-    try {
-      await processStatusUpdate(orgId, status)
-    } catch (err) {
-      console.error(`[Webhook] Error processing status ${status.messageId}:`, err)
+    // Process status updates
+    for (const status of statuses) {
+      try {
+        await processStatusUpdate(orgId, status)
+      } catch (err) {
+        console.error(`[Webhook] Error processing status ${status.messageId}:`, err)
+      }
     }
+  } catch (err) {
+    // Top-level error boundary — never crash the process
+    console.error('[Webhook] processWebhook top-level error:', err)
   }
 }
 
@@ -176,16 +225,20 @@ async function processIncomingMessage(
 
   if (msg.mediaId && accessToken) {
     try {
-      mediaData = await downloadAndStore(
-        msg.mediaId,
-        accessToken,
-        orgId,
-        conversation.id
+      mediaData = await withRetry(
+        () => withTimeout(
+          downloadAndStore(msg.mediaId!, accessToken, orgId, conversation.id),
+          30_000,
+          `media download ${msg.mediaId}`
+        ),
+        `media download ${msg.mediaId}`,
+        2,
+        1000
       )
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
       mediaError = errMsg
-      console.error(`[Webhook] Media download failed for ${msg.mediaId}:`, errMsg)
+      console.error(`[Webhook] Media download failed for ${msg.mediaId} (msg ${msg.messageId}):`, errMsg)
     }
   }
 
@@ -285,12 +338,15 @@ async function processIncomingMessage(
   const shouldGenerateAi = msg.type === 'text' || (content && !content.startsWith('['))
   if (content && shouldGenerateAi && aiMode !== 'off') {
     setImmediate(() => {
-      generateSuggestion(conversation.id, content, conversation.sector_id ?? null, orgId)
-        .catch((err) => console.error('[Webhook] AI suggestion failed:', err))
+      withTimeout(
+        generateSuggestion(conversation.id, content, conversation.sector_id ?? null, orgId),
+        45_000,
+        `AI suggestion for conversation ${conversation.id}`
+      ).catch((err) => console.error(`[Webhook] AI suggestion failed (msg ${msg.messageId}):`, err))
     })
   }
 
-  console.log(`[Webhook] Message ${msg.messageId} from ${msg.from} processed`)
+  console.log(`[Webhook] Message ${msg.messageId} from ${msg.from} processed (type=${msg.type}, conv=${conversation.id}, media=${!!mediaData}, ai=${aiMode})`)
 }
 
 async function processStatusUpdate(

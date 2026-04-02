@@ -1,9 +1,11 @@
 import './env.js'
 import { serve } from '@hono/node-server'
+import type { ServerType } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { bodyLimit } from 'hono/body-limit'
+import { supabaseAdmin } from './lib/supabase.js'
 
 import webhookRoutes from './routes/webhook.js'
 import messageRoutes from './routes/messages.js'
@@ -17,6 +19,31 @@ import ecosystemRoutes from './routes/ecosystem.js'
 import quoteRoutes from './routes/quotes.js'
 
 const app = new Hono()
+const startTime = Date.now()
+let serverVersion = '1.0.0'
+
+// Try to read version from package.json
+try {
+  const { createRequire } = await import('module')
+  const require = createRequire(import.meta.url)
+  const pkg = require('../package.json')
+  serverVersion = pkg.version || serverVersion
+} catch {
+  // Non-critical — use default version
+}
+
+// --- Security Headers Middleware ---
+app.use('*', async (c, next) => {
+  await next()
+  c.res.headers.set('X-Content-Type-Options', 'nosniff')
+  c.res.headers.set('X-Frame-Options', 'DENY')
+  c.res.headers.set('X-XSS-Protection', '1; mode=block')
+  c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+  c.res.headers.delete('X-Powered-By')
+  if (process.env.NODE_ENV === 'production') {
+    c.res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  }
+})
 
 // Middleware
 app.use('*', logger())
@@ -41,8 +68,45 @@ app.use('*', async (c, next) => {
   }
 })
 
-// Health check
-app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
+// Health check with Supabase connectivity test
+app.get('/health', async (c) => {
+  const uptimeMs = Date.now() - startTime
+  const timestamp = new Date().toISOString()
+
+  try {
+    const { error } = await supabaseAdmin
+      .from('organizations')
+      .select('id')
+      .limit(1)
+
+    if (error) {
+      return c.json({
+        status: 'degraded',
+        timestamp,
+        uptime: uptimeMs,
+        version: serverVersion,
+        db: { status: 'error', message: error.message },
+      }, 200)
+    }
+
+    return c.json({
+      status: 'ok',
+      timestamp,
+      uptime: uptimeMs,
+      version: serverVersion,
+      db: { status: 'connected' },
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return c.json({
+      status: 'unhealthy',
+      timestamp,
+      uptime: uptimeMs,
+      version: serverVersion,
+      db: { status: 'unreachable', message },
+    }, 503)
+  }
+})
 
 // Routes
 app.route('/webhook', webhookRoutes)
@@ -60,9 +124,56 @@ const port = parseInt(process.env.PORT || '3001', 10)
 
 console.log(`[Nexus] Server running on port ${port}`)
 
-serve({
+const server: ServerType = serve({
   fetch: app.fetch,
   port,
 })
+
+// --- Graceful Shutdown ---
+let isShuttingDown = false
+let activeRequests = 0
+
+// Track active requests via Node's connection events
+server.on('request', (_req, res) => {
+  if (isShuttingDown) {
+    res.writeHead(503, { 'Content-Type': 'text/plain' })
+    res.end('Server is shutting down')
+    return
+  }
+  activeRequests++
+  res.on('close', () => {
+    activeRequests--
+  })
+})
+
+function gracefulShutdown(signal: string): void {
+  if (isShuttingDown) return
+  isShuttingDown = true
+  console.log(`[Nexus] ${signal} received — starting graceful shutdown...`)
+  console.log(`[Nexus] Active requests: ${activeRequests}`)
+
+  // Stop accepting new connections
+  server.close(() => {
+    console.log('[Nexus] Server closed — no more incoming connections')
+  })
+
+  // Wait for in-flight requests (up to 10s)
+  const shutdownDeadline = Date.now() + 10_000
+  const interval = setInterval(() => {
+    if (activeRequests <= 0 || Date.now() >= shutdownDeadline) {
+      clearInterval(interval)
+      if (activeRequests > 0) {
+        console.warn(`[Nexus] Forcing shutdown with ${activeRequests} active request(s)`)
+      } else {
+        console.log('[Nexus] All requests completed — exiting cleanly')
+      }
+      process.exit(0)
+    }
+    console.log(`[Nexus] Waiting for ${activeRequests} active request(s) to complete...`)
+  }, 500)
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+process.on('SIGINT', () => gracefulShutdown('SIGINT'))
 
 export default app

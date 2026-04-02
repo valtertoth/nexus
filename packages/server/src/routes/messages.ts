@@ -6,6 +6,7 @@ import { supabaseAdmin } from '../lib/supabase.js'
 import { sendTextMessage, sendMediaMessage } from '../services/whatsapp.service.js'
 import { downloadAndStore } from '../services/media.service.js'
 import { saveMessage, updateConversationWithMessage } from '../services/conversation.service.js'
+import { requireString, requireUUID } from '../lib/validate.js'
 import type { ContentType } from '@nexus/shared'
 
 type AuthVars = { Variables: { userId: string; orgId: string } }
@@ -28,9 +29,9 @@ messages.post('/send', async (c) => {
 
   const { conversationId, content, replyToWaMessageId } = body
 
-  if (!conversationId || !content?.trim()) {
-    return c.json({ error: 'conversationId e content são obrigatórios' }, 400)
-  }
+  // Input validation
+  requireUUID(conversationId, 'conversationId')
+  requireString(content, 'content')
 
   // Get conversation with contact wa_id
   const { data: conversation, error: convError } = await supabaseAdmin
