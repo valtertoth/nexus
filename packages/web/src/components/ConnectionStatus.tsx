@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Wifi, WifiOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useConnectionStore } from '@/stores/connectionStore'
 
 export function ConnectionStatus() {
   const [online, setOnline] = useState(navigator.onLine)
   const [showReconnected, setShowReconnected] = useState(false)
+  const realtimeConnected = useConnectionStore((s) => s.realtimeConnected)
 
   useEffect(() => {
     const handleOnline = () => {
@@ -25,6 +27,16 @@ export function ConnectionStatus() {
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
+
+  // Show realtime disconnection warning (browser online but WS down)
+  if (online && !realtimeConnected) {
+    return (
+      <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 py-1.5 text-xs font-medium bg-amber-500 text-white transition-all duration-300">
+        <WifiOff className="w-3.5 h-3.5" />
+        Reconectando ao servidor...
+      </div>
+    )
+  }
 
   if (online && !showReconnected) return null
 

@@ -9,7 +9,8 @@ import { bodyLimit } from 'hono/body-limit'
 import { supabaseAdmin } from './lib/supabase.js'
 import { metrics } from './lib/metrics.js'
 
-import webhookRoutes from './routes/webhook.js'
+import webhookRoutes, { processWebhook } from './routes/webhook.js'
+import { recoverPendingWebhooks, cleanupWebhookQueue } from './services/webhook-recovery.service.js'
 import messageRoutes from './routes/messages.js'
 import aiRoutes from './routes/ai.js'
 import knowledgeRoutes from './routes/knowledge.js'
@@ -154,6 +155,30 @@ const server: ServerType = serve({
   fetch: app.fetch,
   port,
 })
+
+// --- Webhook Recovery (crash safety net) ---
+// On startup, recover any pending/failed webhooks from previous crashes
+setTimeout(async () => {
+  try {
+    await recoverPendingWebhooks(processWebhook as (payload: unknown) => Promise<void>)
+    await cleanupWebhookQueue()
+  } catch (err) {
+    console.error('[Recovery] Startup recovery failed:', err)
+  }
+}, 5_000) // Wait 5s for server to fully initialize
+
+// Periodic recovery + cleanup (every 2 minutes)
+const recoveryInterval = setInterval(async () => {
+  try {
+    await recoverPendingWebhooks(processWebhook as (payload: unknown) => Promise<void>)
+    await cleanupWebhookQueue()
+  } catch (err) {
+    console.error('[Recovery] Periodic recovery failed:', err)
+  }
+}, 120_000)
+
+// Prevent the interval from keeping the process alive during shutdown
+recoveryInterval.unref()
 
 // --- Graceful Shutdown ---
 let isShuttingDown = false

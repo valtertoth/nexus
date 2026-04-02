@@ -71,18 +71,66 @@ webhook.post('/', webhookRateLimit, async (c) => {
     return c.text('OK', 200)
   }
 
+  // Extract first message ID for queue dedup key
+  const { messages } = parseWebhookPayload(body)
+  const firstMsgId = messages[0]?.messageId || `status-${Date.now()}`
+
+  // Persist to queue BEFORE processing (crash recovery safety net).
+  // If the server crashes after returning 200 but before processing completes,
+  // the message can be recovered from the queue on restart.
+  let queueId: string | null = null
+  try {
+    const { data } = await supabaseAdmin
+      .from('webhook_queue')
+      .insert({
+        wa_message_id: firstMsgId,
+        payload: body,
+        status: 'processing',
+        attempts: 1,
+      })
+      .select('id')
+      .single()
+
+    queueId = data?.id || null
+  } catch (err) {
+    // Best effort — still process even if queue insert fails
+    console.warn('[Webhook] Queue insert failed (processing anyway):', err)
+  }
+
   // Process in background — return 200 to Meta immediately
-  setImmediate(() => {
-    processWebhook(body).catch((err) => {
+  setImmediate(async () => {
+    try {
+      await processWebhook(body)
+
+      // Mark as completed in queue
+      if (queueId) {
+        await supabaseAdmin
+          .from('webhook_queue')
+          .update({ status: 'completed', processed_at: new Date().toISOString() })
+          .eq('id', queueId)
+      }
+    } catch (err) {
       metrics.webhookFailed()
       console.error('[Webhook] Processing error:', err)
-    })
+
+      // Mark as failed in queue (will be retried on next recovery cycle)
+      if (queueId) {
+        await supabaseAdmin
+          .from('webhook_queue')
+          .update({
+            status: 'failed',
+            error: err instanceof Error ? err.message : String(err),
+            next_retry_at: new Date(Date.now() + 30_000).toISOString(),
+          })
+          .eq('id', queueId)
+      }
+    }
   })
 
   return c.text('OK', 200)
 })
 
-async function processWebhook(body: WebhookPayload): Promise<void> {
+export async function processWebhook(body: WebhookPayload): Promise<void> {
   try {
     const { messages, statuses, phoneNumberId } = parseWebhookPayload(body)
 

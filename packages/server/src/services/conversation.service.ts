@@ -201,7 +201,20 @@ export async function saveMessage(message: MessageInsert): Promise<string> {
     .select('id')
     .single()
 
-  if (error) throw new Error(`Failed to save message: ${error.message}`)
+  if (error) {
+    // Handle unique constraint violation (duplicate message from crash recovery)
+    if (error.code === '23505') {
+      console.log('[Message] Duplicate message detected (wa_message_id constraint), skipping')
+      const { data: existing } = await supabaseAdmin
+        .from('messages')
+        .select('id')
+        .eq('wa_message_id', message.wa_message_id ?? '')
+        .eq('org_id', message.org_id)
+        .single()
+      return existing?.id || 'duplicate'
+    }
+    throw new Error(`Failed to save message: ${error.message}`)
+  }
   return data.id as string
 }
 

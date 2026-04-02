@@ -8,9 +8,15 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
   auth: {
     persistSession: true,
     detectSessionInUrl: true,
+    autoRefreshToken: true,
     // Bypass navigator lock to avoid cross-tab lock contention in dev
     lock: <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>) => fn(),
   },

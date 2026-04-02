@@ -54,6 +54,7 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
     sendingMessage,
     sendMessage,
     sendMedia,
+    retryMessage,
     clearAiSuggestion,
     fetchMoreMessages,
     hasMore,
@@ -176,7 +177,7 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
                 <p className="text-center text-xs text-zinc-400 py-2">Início da conversa</p>
               )}
               {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
+                <MessageBubble key={msg.id} message={msg} onRetry={retryMessage} />
               ))}
             </div>
           )}

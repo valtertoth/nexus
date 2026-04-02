@@ -336,7 +336,7 @@ export interface ConversionEventInsert {
 
 export type SenderType = 'contact' | 'agent' | 'ai' | 'system'
 export type ContentType = 'text' | 'image' | 'audio' | 'video' | 'document' | 'location' | 'contact' | 'sticker' | 'interactive' | 'template'
-export type WaMessageStatus = 'sent' | 'delivered' | 'read' | 'failed'
+export type WaMessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export interface AiSuggestionSource {
   doc_name: string

@@ -23,6 +23,7 @@ interface MessageStore {
   setMessages: (conversationId: string, messages: Message[]) => void
   addMessage: (conversationId: string, message: Message) => void
   updateMessage: (conversationId: string, messageId: string, data: Partial<Message>) => void
+  removeMessage: (conversationId: string, messageId: string) => void
   prependMessages: (conversationId: string, messages: Message[]) => void
   setHasMore: (conversationId: string, hasMore: boolean) => void
   setLoadingMore: (conversationId: string, loading: boolean) => void
@@ -54,10 +55,22 @@ export const useMessageStore = create<MessageStore>((set) => ({
       const existing = s.messages[conversationId] || []
       // Avoid duplicates
       if (existing.some((m) => m.id === message.id)) return s
+
+      // If this is a real agent message (from server/realtime), remove any
+      // optimistic temp messages with matching content
+      let filtered = existing
+      if (message.sender_type === 'agent' && !message.id.startsWith('temp-')) {
+        filtered = existing.filter((m) => {
+          if (!m.id.startsWith('temp-')) return true
+          // Remove temp message if content matches (optimistic confirmation)
+          return m.content !== message.content
+        })
+      }
+
       return {
         messages: {
           ...s.messages,
-          [conversationId]: [...existing, message],
+          [conversationId]: [...filtered, message],
         },
       }
     }),
@@ -68,6 +81,16 @@ export const useMessageStore = create<MessageStore>((set) => ({
         ...s.messages,
         [conversationId]: (s.messages[conversationId] || []).map((m) =>
           m.id === messageId ? { ...m, ...data } : m
+        ),
+      },
+    })),
+
+  removeMessage: (conversationId, messageId) =>
+    set((s) => ({
+      messages: {
+        ...s.messages,
+        [conversationId]: (s.messages[conversationId] || []).filter(
+          (m) => m.id !== messageId
         ),
       },
     })),

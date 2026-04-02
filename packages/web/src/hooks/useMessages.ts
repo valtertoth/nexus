@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { supabase, getAuthHeaders } from '@/lib/supabase'
 import { useMessageStore } from '@/stores/messageStore'
 import { useConversationStore } from '@/stores/conversationStore'
+import { playNotificationSound, showMessageNotification } from '@/lib/notifications'
 import type { Message } from '@nexus/shared'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
@@ -18,6 +19,7 @@ export function useMessages(conversationId: string | null) {
     setMessages,
     addMessage,
     updateMessage,
+    removeMessage,
     prependMessages,
     setAiSuggestion,
     clearAiSuggestion,
@@ -126,60 +128,125 @@ export function useMessages(conversationId: string | null) {
 
   // Realtime subscription — ONLY depends on conversationId
   // Uses refs for store callbacks to prevent subscription churn
+  // Includes reconnection with exponential backoff
   useEffect(() => {
     if (!conversationId) return
 
     const convId = conversationId
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null
+    let retryCount = 0
+    let wasDisconnected = false
+    let mounted = true
+    const MAX_RETRIES = 10
 
-    const channel = supabase
-      .channel(`messages:${convId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${convId}`,
-        },
-        (payload) => {
-          const msg = payload.new as Message
-          addMessageRef.current(convId, msg)
-          updateConversationRef.current(convId, {
-            last_message_preview: msg.content || '',
-            last_message_at: msg.created_at,
-          })
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${convId}`,
-        },
-        (payload) => {
-          const updated = payload.new as Message
-          updateMessageRef.current(convId, updated.id, updated)
+    function subscribe() {
+      if (!mounted) return
 
-          if (updated.ai_suggested_response && updated.sender_type === 'contact') {
-            setAiSuggestionRef.current({
-              text: updated.ai_suggested_response,
-              sources: updated.ai_suggestion_sources || [],
-              loading: false,
-              conversationId: convId,
+      // Clean up previous channel
+      if (channel) {
+        supabase.removeChannel(channel)
+        channel = null
+      }
+
+      channel = supabase
+        .channel(`messages:${convId}-${Date.now()}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${convId}`,
+          },
+          (payload) => {
+            const msg = payload.new as Message
+            addMessageRef.current(convId, msg)
+
+            // Play notification for incoming contact messages
+            if (msg.sender_type === 'contact') {
+              playNotificationSound()
+              showMessageNotification(
+                'Nova mensagem',
+                msg.content || ''
+              )
+            }
+
+            updateConversationRef.current(convId, {
+              last_message_preview: msg.content || '',
+              last_message_at: msg.created_at,
             })
           }
-        }
-      )
-      .subscribe()
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${convId}`,
+          },
+          (payload) => {
+            const updated = payload.new as Message
+            updateMessageRef.current(convId, updated.id, updated)
+
+            if (updated.ai_suggested_response && updated.sender_type === 'contact') {
+              setAiSuggestionRef.current({
+                text: updated.ai_suggested_response,
+                sources: updated.ai_suggestion_sources || [],
+                loading: false,
+                conversationId: convId,
+              })
+            }
+          }
+        )
+        .subscribe((status, err) => {
+          if (!mounted) return
+
+          if (status === 'SUBSCRIBED') {
+            console.log(`[Messages] Connected to channel for ${convId}`)
+            retryCount = 0
+            // If reconnecting after disconnection, refetch messages to catch up
+            if (wasDisconnected) {
+              console.log(`[Messages] Reconnected — refetching messages for ${convId}`)
+              fetchMessages(convId)
+              wasDisconnected = false
+            }
+          }
+
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn(`[Messages] ${status} for ${convId}:`, err?.message)
+            wasDisconnected = true
+
+            if (retryCount < MAX_RETRIES && mounted) {
+              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000)
+              retryCount++
+              console.log(`[Messages] Retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`)
+              retryTimeout = setTimeout(subscribe, delay)
+            }
+          }
+
+          if (status === 'CLOSED' && mounted) {
+            wasDisconnected = true
+            if (retryCount < MAX_RETRIES) {
+              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000)
+              retryCount++
+              retryTimeout = setTimeout(subscribe, delay)
+            }
+          }
+        })
+    }
+
+    subscribe()
 
     return () => {
-      supabase.removeChannel(channel)
+      mounted = false
+      if (retryTimeout) clearTimeout(retryTimeout)
+      if (channel) supabase.removeChannel(channel)
     }
-  }, [conversationId]) // Only conversationId — refs handle the rest
+  }, [conversationId, fetchMessages]) // fetchMessages is stable (useCallback)
 
-  // Send message
+  // Send message with optimistic rendering
   const sendMessage = useCallback(async (
     content: string,
     options?: {
@@ -189,6 +256,41 @@ export function useMessages(conversationId: string | null) {
     }
   ) => {
     if (!conversationId || !content.trim()) return
+
+    // 1. Create optimistic message (appears instantly)
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const optimisticMsg: Message = {
+      id: tempId,
+      conversation_id: conversationId,
+      org_id: '',
+      sender_type: 'agent',
+      sender_id: null,
+      content: content.trim(),
+      content_type: 'text',
+      media_url: null,
+      media_original_url: null,
+      media_mime_type: null,
+      media_filename: null,
+      media_size: null,
+      wa_message_id: null,
+      wa_media_id: null,
+      wa_status: 'pending',
+      wa_timestamp: null,
+      ai_suggested_response: null,
+      ai_suggestion_sources: null,
+      ai_approved: options?.aiApproved ?? null,
+      ai_edited: options?.aiEdited ?? false,
+      ai_original_suggestion: options?.aiOriginal ?? null,
+      ai_model_used: null,
+      ai_tokens_used: null,
+      ai_latency_ms: null,
+      is_internal_note: false,
+      reply_to_message_id: null,
+      metadata: {},
+      created_at: new Date().toISOString(),
+    }
+
+    addMessage(conversationId, optimisticMsg)
 
     setSendingMessage(true)
     try {
@@ -209,17 +311,23 @@ export function useMessages(conversationId: string | null) {
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}))
+        // Mark optimistic message as failed
+        updateMessage(conversationId, tempId, { wa_status: 'failed' } as Partial<Message>)
         throw new Error((err as { error?: string }).error || 'Falha ao enviar mensagem')
       }
 
+      // On success, the realtime subscription will deliver the real message.
+      // addMessage already handles cleanup of temp messages when the real one arrives.
       clearAiSuggestion()
     } catch (err) {
+      // Update optimistic message to show failed state
+      updateMessage(conversationId, tempId, { wa_status: 'failed' } as Partial<Message>)
       const message = err instanceof Error ? err.message : 'Falha ao enviar mensagem'
       toast.error(message)
     } finally {
       setSendingMessage(false)
     }
-  }, [conversationId, setSendingMessage, clearAiSuggestion])
+  }, [conversationId, addMessage, updateMessage, setSendingMessage, clearAiSuggestion])
 
   // Send media (image, video, audio, document)
   const sendMedia = useCallback(async (
@@ -259,6 +367,21 @@ export function useMessages(conversationId: string | null) {
     }
   }, [conversationId, setSendingMessage, clearAiSuggestion])
 
+  // Retry a failed message
+  const retryMessage = useCallback(async (message: Message) => {
+    if (!conversationId || !message.content) return
+
+    // Remove the failed message
+    removeMessage(conversationId, message.id)
+
+    // Re-send with the same content (creates new optimistic message)
+    await sendMessage(message.content, {
+      aiApproved: message.ai_approved ?? undefined,
+      aiEdited: message.ai_edited ?? undefined,
+      aiOriginal: message.ai_original_suggestion ?? undefined,
+    })
+  }, [conversationId, removeMessage, sendMessage])
+
   const hasLoaded = conversationId ? loadedConversations.has(conversationId) : false
 
   return {
@@ -268,6 +391,7 @@ export function useMessages(conversationId: string | null) {
     sendingMessage,
     sendMessage,
     sendMedia,
+    retryMessage,
     clearAiSuggestion,
     setAiSuggestion,
     fetchMoreMessages,

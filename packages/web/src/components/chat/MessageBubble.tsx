@@ -1,16 +1,17 @@
 import { useState, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { Check, CheckCheck, Sparkles, FileText, Download, Play, MapPin, User, Video, X, Mic } from 'lucide-react'
+import { Check, CheckCheck, Clock, AlertCircle, RefreshCw, Sparkles, FileText, Download, Play, MapPin, User, Video, X, Mic } from 'lucide-react'
 import { format } from 'date-fns'
 import type { Message } from '@nexus/shared'
 
 interface MessageBubbleProps {
   message: Message
+  onRetry?: (message: Message) => void
 }
 
 const MEDIA_TYPES = new Set(['image', 'video', 'sticker'])
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
   const isContact = message.sender_type === 'contact'
   const isSystem = message.sender_type === 'system'
   const isAiApproved = message.ai_approved === true
@@ -60,63 +61,78 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         isContact ? 'justify-start' : 'justify-end'
       )}
     >
-      <div
-        className={cn(
-          'max-w-[70%] relative group overflow-hidden',
-          // Media messages: no padding on top/sides for edge-to-edge images/video
-          isMedia && message.media_url
-            ? cn(
-                'rounded-2xl',
-                isContact ? 'bg-zinc-100 rounded-bl-md' : 'bg-zinc-900 rounded-br-md'
-              )
-            : cn(
-                'px-3.5 py-2 rounded-2xl',
-                isContact
-                  ? 'bg-zinc-100 text-zinc-900 rounded-bl-md'
-                  : 'bg-zinc-900 text-white rounded-br-md'
-              )
-        )}
-      >
-        {/* Content by type */}
-        <MessageContent message={message} isContact={isContact} />
+      <div className="max-w-[70%]">
+        <div
+          className={cn(
+            'relative group overflow-hidden',
+            // Media messages: no padding on top/sides for edge-to-edge images/video
+            isMedia && message.media_url
+              ? cn(
+                  'rounded-2xl',
+                  isContact ? 'bg-zinc-100 rounded-bl-md' : 'bg-zinc-900 rounded-br-md'
+                )
+              : cn(
+                  'px-3.5 py-2 rounded-2xl',
+                  isContact
+                    ? 'bg-zinc-100 text-zinc-900 rounded-bl-md'
+                    : 'bg-zinc-900 text-white rounded-br-md'
+                ),
+            // Dim pending messages slightly
+            message.wa_status === 'pending' && 'opacity-70',
+          )}
+        >
+          {/* Content by type */}
+          <MessageContent message={message} isContact={isContact} />
 
-        {/* Caption + footer for media */}
-        {isMedia && message.media_url ? (
-          <div className="px-3 pb-1.5">
-            {hasCaption && (
-              <p className={cn('text-sm whitespace-pre-wrap break-words mt-1.5', isContact ? 'text-zinc-900' : 'text-white')}>
-                {displayContent}
-              </p>
-            )}
-            <div className="flex items-center gap-1.5 mt-1 justify-end">
-              {isAiApproved && !isContact && (
-                <Sparkles className="w-3 h-3 text-amber-300 opacity-70" />
+          {/* Caption + footer for media */}
+          {isMedia && message.media_url ? (
+            <div className="px-3 pb-1.5">
+              {hasCaption && (
+                <p className={cn('text-sm whitespace-pre-wrap break-words mt-1.5', isContact ? 'text-zinc-900' : 'text-white')}>
+                  {displayContent}
+                </p>
               )}
-              <span className={cn('text-xs', isContact ? 'text-zinc-400' : 'text-zinc-400')}>
-                {time}
-              </span>
-              {!isContact && <StatusIcon status={message.wa_status} />}
+              <div className="flex items-center gap-1.5 mt-1 justify-end">
+                {isAiApproved && !isContact && (
+                  <Sparkles className="w-3 h-3 text-amber-300 opacity-70" />
+                )}
+                <span className={cn('text-xs', isContact ? 'text-zinc-400' : 'text-zinc-400')}>
+                  {time}
+                </span>
+                {!isContact && <StatusIcon status={message.wa_status} />}
+              </div>
             </div>
-          </div>
-        ) : (
-          <>
-            {/* Caption for non-visual media (audio, document) */}
-            {hasCaption && (
-              <p className="text-sm whitespace-pre-wrap break-words mt-1.5">
-                {displayContent}
-              </p>
-            )}
-            {/* Footer: time + status */}
-            <div className="flex items-center gap-1.5 mt-1 justify-end">
-              {isAiApproved && !isContact && (
-                <Sparkles className="w-3 h-3 text-amber-300 opacity-70" />
+          ) : (
+            <>
+              {/* Caption for non-visual media (audio, document) */}
+              {hasCaption && (
+                <p className="text-sm whitespace-pre-wrap break-words mt-1.5">
+                  {displayContent}
+                </p>
               )}
-              <span className={cn('text-xs', isContact ? 'text-zinc-400' : 'text-zinc-400')}>
-                {time}
-              </span>
-              {!isContact && <StatusIcon status={message.wa_status} />}
-            </div>
-          </>
+              {/* Footer: time + status */}
+              <div className="flex items-center gap-1.5 mt-1 justify-end">
+                {isAiApproved && !isContact && (
+                  <Sparkles className="w-3 h-3 text-amber-300 opacity-70" />
+                )}
+                <span className={cn('text-xs', isContact ? 'text-zinc-400' : 'text-zinc-400')}>
+                  {time}
+                </span>
+                {!isContact && <StatusIcon status={message.wa_status} />}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Retry button for failed messages */}
+        {message.wa_status === 'failed' && onRetry && (
+          <button
+            onClick={() => onRetry(message)}
+            className="mt-1 text-xs text-red-500 hover:text-red-700 flex items-center gap-1 ml-auto"
+          >
+            <RefreshCw className="w-3 h-3" />
+            Tentar novamente
+          </button>
         )}
       </div>
     </div>
@@ -126,7 +142,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 function StatusIcon({ status }: { status?: string | null }) {
   return (
     <span className="flex">
-      {status === 'read' ? (
+      {status === 'pending' ? (
+        <Clock className="w-3.5 h-3.5 text-zinc-400" />
+      ) : status === 'failed' ? (
+        <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+      ) : status === 'read' ? (
         <CheckCheck className="w-3.5 h-3.5 text-blue-400" />
       ) : status === 'delivered' ? (
         <CheckCheck className="w-3.5 h-3.5 text-zinc-400" />

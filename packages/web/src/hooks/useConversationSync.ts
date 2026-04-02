@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useConversationStore, type ConversationWithRelations } from '@/stores/conversationStore'
+import { useConnectionStore } from '@/stores/connectionStore'
 
 const CONVERSATION_SELECT = `
   *,
@@ -9,9 +10,12 @@ const CONVERSATION_SELECT = `
   assigned_user:users!conversations_assigned_to_fkey(*)
 `
 
+const MAX_RETRIES = 10
+
 /**
  * Singleton sync hook — call ONCE in a top-level component (e.g. MainLayout).
  * Subscribes to realtime changes and performs initial fetch.
+ * Handles reconnection with exponential backoff.
  * Other components use useConversations() to read/filter the store.
  */
 export function useConversationSync() {
@@ -24,6 +28,10 @@ export function useConversationSync() {
 
   useEffect(() => {
     mountedRef.current = true
+
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null
+    let retryCount = 0
+    let wasDisconnected = false
 
     // Guard: clean up any stale channel from StrictMode double-mount
     if (channelRef.current) {
@@ -61,82 +69,132 @@ export function useConversationSync() {
       }
     }
 
+    function subscribe() {
+      if (!mountedRef.current) return
+
+      // Clean up previous channel
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current)
+        channelRef.current = null
+      }
+
+      // Unique channel name per attempt to avoid conflicts
+      const channel = supabase
+        .channel(`conversations-realtime-${Date.now()}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'conversations' },
+          async (payload) => {
+            if (!mountedRef.current) return
+            console.log('[ConversationSync] INSERT event received:', payload.new.id)
+
+            // Small delay to ensure contact & related data are committed
+            await new Promise((r) => setTimeout(r, 300))
+
+            const { data, error } = await supabase
+              .from('conversations')
+              .select(CONVERSATION_SELECT)
+              .eq('id', payload.new.id)
+              .single()
+
+            if (error || !data || !mountedRef.current) return
+
+            // Deduplicate
+            const existing = useConversationStore.getState().conversations
+            if (!existing.find((c) => c.id === data.id)) {
+              storeRef.current.add(data as ConversationWithRelations)
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'conversations' },
+          async (payload) => {
+            if (!mountedRef.current) return
+
+            const { data, error } = await supabase
+              .from('conversations')
+              .select(CONVERSATION_SELECT)
+              .eq('id', payload.new.id)
+              .single()
+
+            if (error || !data || !mountedRef.current) return
+
+            const existing = useConversationStore.getState().conversations
+            if (existing.find((c) => c.id === data.id)) {
+              storeRef.current.update(payload.new.id as string, data as ConversationWithRelations)
+            } else {
+              storeRef.current.add(data as ConversationWithRelations)
+            }
+          }
+        )
+        .subscribe((status, err) => {
+          if (!mountedRef.current) return
+
+          if (status === 'SUBSCRIBED') {
+            console.log('[ConversationSync] Connected to conversations channel')
+            retryCount = 0
+            useConnectionStore.getState().setRealtimeConnected(true)
+            // If reconnecting after a disconnection, refetch to catch up
+            if (wasDisconnected) {
+              console.log('[ConversationSync] Reconnected — refetching conversations...')
+              fetchAll()
+              wasDisconnected = false
+            }
+          }
+
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn(`[ConversationSync] ${status}:`, err?.message)
+            wasDisconnected = true
+            useConnectionStore.getState().setRealtimeConnected(false)
+
+            if (retryCount < MAX_RETRIES && mountedRef.current) {
+              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000)
+              retryCount++
+              console.log(`[ConversationSync] Retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`)
+              retryTimeout = setTimeout(subscribe, delay)
+            } else if (retryCount >= MAX_RETRIES) {
+              console.error('[ConversationSync] Max retries reached. Realtime subscription stopped.')
+            }
+          }
+
+          if (status === 'CLOSED') {
+            console.warn('[ConversationSync] Channel closed')
+            wasDisconnected = true
+            useConnectionStore.getState().setRealtimeConnected(false)
+
+            if (retryCount < MAX_RETRIES && mountedRef.current) {
+              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000)
+              retryCount++
+              retryTimeout = setTimeout(subscribe, delay)
+            }
+          }
+        })
+
+      channelRef.current = channel
+    }
+
     // Always fetch data immediately
     fetchAll()
 
-    // Subscribe for realtime updates (best-effort, not blocking)
-    // NOTE: This subscribes to ALL conversations (org-scoped via RLS).
-    // Future optimization: filter by assigned_to for agent-specific views,
-    // but keep broad subscription for inbox (unassigned conversations must be visible).
-    const channel = supabase
-      .channel('conversations-realtime')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'conversations' },
-        async (payload) => {
-          if (!mountedRef.current) return
-          console.log('[ConversationSync] INSERT event received:', payload.new.id)
-
-          // Small delay to ensure contact & related data are committed
-          await new Promise((r) => setTimeout(r, 300))
-
-          const { data, error } = await supabase
-            .from('conversations')
-            .select(CONVERSATION_SELECT)
-            .eq('id', payload.new.id)
-            .single()
-
-          if (error || !data || !mountedRef.current) return
-
-          // Deduplicate
-          const existing = useConversationStore.getState().conversations
-          if (!existing.find((c) => c.id === data.id)) {
-            storeRef.current.add(data as ConversationWithRelations)
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'conversations' },
-        async (payload) => {
-          if (!mountedRef.current) return
-
-          const { data, error } = await supabase
-            .from('conversations')
-            .select(CONVERSATION_SELECT)
-            .eq('id', payload.new.id)
-            .single()
-
-          if (error || !data || !mountedRef.current) return
-
-          const existing = useConversationStore.getState().conversations
-          if (existing.find((c) => c.id === data.id)) {
-            storeRef.current.update(payload.new.id as string, data as ConversationWithRelations)
-          } else {
-            storeRef.current.add(data as ConversationWithRelations)
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('[ConversationSync] Subscription status:', status)
-        if (status === 'CHANNEL_ERROR') {
-          console.error('[ConversationSync] Channel error — will retry automatically')
-        }
-      })
-
-    channelRef.current = channel
+    // Subscribe for realtime updates with reconnection logic
+    subscribe()
 
     // Auto-refresh conversations when browser comes back online
     const handleOnline = () => {
       if (!mountedRef.current) return
       console.log('[ConversationSync] Back online — refreshing...')
       fetchAll()
+      // Also re-subscribe in case the channel is stale
+      retryCount = 0
+      subscribe()
     }
     window.addEventListener('online', handleOnline)
 
     return () => {
       mountedRef.current = false
       window.removeEventListener('online', handleOnline)
+      if (retryTimeout) clearTimeout(retryTimeout)
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current)
         channelRef.current = null
