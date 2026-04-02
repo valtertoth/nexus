@@ -1,11 +1,11 @@
 import { Hono } from 'hono'
-import { authMiddleware } from '../middleware/auth.js'
+import { authMiddleware, type UserRole } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { recordOutcome, getPendingConversions, markConversionSent, getConversionSummary } from '../services/conversion.service.js'
 import { analyzeConversation, getTopInsightsForSector } from '../services/conversation_intelligence.service.js'
 
-type AuthVars = { Variables: { userId: string; orgId: string } }
+type AuthVars = { Variables: { userId: string; orgId: string; userRole: UserRole } }
 
 const intelligence = new Hono<AuthVars>()
 

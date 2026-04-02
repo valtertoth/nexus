@@ -7,6 +7,7 @@ import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
 import { bodyLimit } from 'hono/body-limit'
 import { supabaseAdmin } from './lib/supabase.js'
+import { metrics } from './lib/metrics.js'
 
 import webhookRoutes from './routes/webhook.js'
 import messageRoutes from './routes/messages.js'
@@ -105,6 +106,7 @@ app.get('/health', async (c) => {
       uptime: uptimeMs,
       version: serverVersion,
       db: { status: 'connected' },
+      metrics: metrics.getSnapshot(),
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

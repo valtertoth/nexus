@@ -1,4 +1,5 @@
 import { HTTPException } from 'hono/http-exception'
+import { supabaseAdmin } from './supabase.js'
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -46,4 +47,20 @@ export function requireOneOf<T>(value: unknown, options: T[], name: string): T {
     })
   }
   return value as T
+}
+
+/**
+ * Verify a conversation belongs to the given org. Throws 404 if not found.
+ */
+export async function requireConversationAccess(conversationId: string, orgId: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from('conversations')
+    .select('id')
+    .eq('id', conversationId)
+    .eq('org_id', orgId)
+    .single()
+
+  if (!data) {
+    throw new HTTPException(404, { message: 'Conversation not found' })
+  }
 }

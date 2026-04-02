@@ -14,7 +14,7 @@ import {
 } from '../services/tag.service.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 
-type AuthVars = { Variables: { userId: string; orgId: string } }
+type AuthVars = { Variables: { userId: string; orgId: string; userRole: string } }
 
 const tags = new Hono<AuthVars>()
 tags.use('*', authMiddleware)

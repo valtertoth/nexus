@@ -6,7 +6,7 @@ import { requireUUID, requireString } from '../lib/validate.js'
 import { syncProducts, searchProducts, listProducts } from '../services/shopify.service.js'
 import { createQuote, getQuote, updateQuote, formatQuoteAsText } from '../services/quote.service.js'
 
-type AuthVars = { Variables: { userId: string; orgId: string } }
+type AuthVars = { Variables: { userId: string; orgId: string; userRole: string } }
 
 const quotes = new Hono<AuthVars>()
 

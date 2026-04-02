@@ -1,19 +1,20 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { authMiddleware } from '../middleware/auth.js'
-import { aiRateLimit } from '../middleware/rateLimit.js'
+import { aiRateLimit, userAiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { requireUUID, requireString } from '../lib/validate.js'
 import { generateSuggestion, streamSuggestion } from '../services/ai.service.js'
 import { streamConsultation } from '../services/ai-consult.service.js'
 
-type AuthVars = { Variables: { userId: string; orgId: string } }
+type AuthVars = { Variables: { userId: string; orgId: string; userRole: string } }
 
 const ai = new Hono<AuthVars>()
 
-// All routes require auth + AI rate limit
+// All routes require auth + rate limits (IP-based + per-user)
 ai.use('*', authMiddleware)
 ai.use('*', aiRateLimit)
+ai.use('*', userAiRateLimit)
 
 // POST /api/ai/suggest — Generate AI suggestion (non-streaming)
 ai.post('/suggest', async (c) => {

@@ -5,7 +5,7 @@ import { supabaseAdmin } from '../lib/supabase.js'
 import { requireUUID } from '../lib/validate.js'
 import { ingestDocument } from '../services/rag.service.js'
 
-type AuthVars = { Variables: { userId: string; orgId: string } }
+type AuthVars = { Variables: { userId: string; orgId: string; userRole: string } }
 
 const knowledge = new Hono<AuthVars>()
 

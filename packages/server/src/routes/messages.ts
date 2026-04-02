@@ -1,16 +1,17 @@
 import { Hono } from 'hono'
 import crypto from 'node:crypto'
 import { authMiddleware } from '../middleware/auth.js'
-import { apiRateLimit } from '../middleware/rateLimit.js'
+import { apiRateLimit, userApiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { sendTextMessage, sendMediaMessage } from '../services/whatsapp.service.js'
 import { withRetry } from '../lib/resilience.js'
 import { downloadAndStore } from '../services/media.service.js'
 import { saveMessage, updateConversationWithMessage } from '../services/conversation.service.js'
 import { requireString, requireUUID } from '../lib/validate.js'
+import { metrics } from '../lib/metrics.js'
 import type { ContentType } from '@nexus/shared'
 
-type AuthVars = { Variables: { userId: string; orgId: string } }
+type AuthVars = { Variables: { userId: string; orgId: string; userRole: string } }
 
 const messages = new Hono<AuthVars>()
 
@@ -19,7 +20,7 @@ messages.use('*', authMiddleware)
 messages.use('*', apiRateLimit)
 
 // POST /api/messages/send — Send a message via WhatsApp
-messages.post('/send', async (c) => {
+messages.post('/send', userApiRateLimit, async (c) => {
   const userId = c.get('userId')
   const orgId = c.get('orgId')
   const body = await c.req.json<{
@@ -33,6 +34,21 @@ messages.post('/send', async (c) => {
   // Input validation
   requireUUID(conversationId, 'conversationId')
   requireString(content, 'content')
+
+  // Dedup check: prevent identical messages within 5s
+  const { data: recentDup } = await supabaseAdmin
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'agent')
+    .eq('content', content)
+    .gte('created_at', new Date(Date.now() - 5000).toISOString())
+    .limit(1)
+    .single()
+
+  if (recentDup) {
+    return c.json({ error: 'Duplicate message detected' }, 409)
+  }
 
   // Get conversation with contact wa_id
   const { data: conversation, error: convError } = await supabaseAdmin
@@ -71,7 +87,9 @@ messages.post('/send', async (c) => {
       2000
     )
     waMessageId = result.messages?.[0]?.id || null
+    metrics.messageSent()
   } catch (err) {
+    metrics.messageFailed()
     console.warn('[Messages] WhatsApp send failed, saving locally:', err)
     waStatus = 'failed'
   }
@@ -190,7 +208,7 @@ function getExtFromMime(mimeType: string): string {
 }
 
 // POST /api/messages/send-media — Send media (image, video, audio, document) via WhatsApp
-messages.post('/send-media', async (c) => {
+messages.post('/send-media', userApiRateLimit, async (c) => {
   const userId = c.get('userId')
   const orgId = c.get('orgId')
 
@@ -283,8 +301,10 @@ messages.post('/send-media', async (c) => {
       2000
     )
     waMessageId = result.messages?.[0]?.id || null
+    metrics.messageSent()
     console.log(`[Messages] Media ${contentType} enviada via Cloud API:`, waMessageId)
   } catch (err) {
+    metrics.messageFailed()
     console.warn('[Messages] Cloud API media send failed:', err)
     waStatus = 'failed'
   }
@@ -465,8 +485,11 @@ messages.post('/:messageId/retry', authMiddleware, apiRateLimit, async (c) => {
       })
       .eq('id', messageId)
 
+    metrics.messageRetried()
+    metrics.messageSent()
     return c.json({ success: true })
   } catch (err) {
+    metrics.messageFailed()
     const errMsg = err instanceof Error ? err.message : 'Retry failed'
     return c.json({ error: errMsg }, 500)
   }

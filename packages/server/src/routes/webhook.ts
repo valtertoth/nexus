@@ -22,6 +22,7 @@ import { parseUtmFromText, applyPendingAttribution, saveContactAttribution, copy
 import { supabaseAdmin } from '../lib/supabase.js'
 import { withRetry, withTimeout } from '../lib/resilience.js'
 import { webhookRateLimit } from '../middleware/rateLimit.js'
+import { metrics } from '../lib/metrics.js'
 
 const webhook = new Hono()
 
@@ -44,6 +45,8 @@ webhook.get('/', (c) => {
 
 // POST /webhook — Receive messages from WhatsApp
 webhook.post('/', webhookRateLimit, async (c) => {
+  metrics.webhookReceived()
+
   // Always return 200 immediately to Meta (they retry on non-200)
   const rawBody = await c.req.text()
 
@@ -71,6 +74,7 @@ webhook.post('/', webhookRateLimit, async (c) => {
   // Process in background — return 200 to Meta immediately
   setImmediate(() => {
     processWebhook(body).catch((err) => {
+      metrics.webhookFailed()
       console.error('[Webhook] Processing error:', err)
     })
   })
@@ -112,6 +116,7 @@ async function processWebhook(body: WebhookPayload): Promise<void> {
       try {
         await processIncomingMessage(orgId, msg, accessToken as string)
       } catch (err) {
+        metrics.webhookFailed()
         console.error(`[Webhook] Error processing message ${msg.messageId}:`, err)
       }
     }
@@ -135,9 +140,12 @@ async function processIncomingMessage(
   msg: ReturnType<typeof parseWebhookPayload>['messages'][number],
   accessToken: string
 ): Promise<void> {
+  const startTime = Date.now()
+
   // Dedup check (scoped to org to prevent cross-tenant collisions)
   const exists = await messageExists(msg.messageId, orgId)
   if (exists) {
+    metrics.webhookDuplicate()
     console.log(`[Webhook] Duplicate message ${msg.messageId}, skipping`)
     return
   }
@@ -307,6 +315,7 @@ async function processIncomingMessage(
     })
   }
 
+  metrics.webhookProcessed(Date.now() - startTime)
   console.log(`[Webhook] Message ${msg.messageId} from ${msg.from} processed (type=${msg.type}, conv=${conversation.id}, media=${!!mediaData}, ai=${aiMode})`)
 }
 

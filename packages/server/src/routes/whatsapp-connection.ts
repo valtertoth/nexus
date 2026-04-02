@@ -5,7 +5,7 @@ import { supabaseAdmin } from '../lib/supabase.js'
 
 const GRAPH_API_URL = 'https://graph.facebook.com/v22.0'
 
-type AuthVars = { Variables: { userId: string; orgId: string } }
+type AuthVars = { Variables: { userId: string; orgId: string; userRole: string } }
 
 const whatsappConnection = new Hono<AuthVars>()
 
