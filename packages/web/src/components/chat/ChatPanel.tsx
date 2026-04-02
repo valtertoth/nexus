@@ -10,9 +10,36 @@ import { AiConsultPanel } from './AiConsultPanel'
 import { QuoteBuilder } from './QuoteBuilder'
 import { MarkupCalculator } from './MarkupCalculator'
 import { Loader2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { formatPhone } from '@nexus/shared'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
 import type { AiMode } from '@nexus/shared'
+
+function MessageSkeleton({ align }: { align: 'left' | 'right' }) {
+  return (
+    <div className={cn('flex mb-2', align === 'right' ? 'justify-end' : 'justify-start')}>
+      <div className={cn(
+        'rounded-2xl px-4 py-3 animate-pulse',
+        align === 'right' ? 'bg-zinc-200' : 'bg-white'
+      )}>
+        <div className="h-3 w-40 bg-zinc-300/50 rounded mb-1.5" />
+        <div className="h-3 w-24 bg-zinc-300/50 rounded" />
+      </div>
+    </div>
+  )
+}
+
+function MessageSkeletons() {
+  return (
+    <div className="px-4 py-4 space-y-2">
+      <MessageSkeleton align="left" />
+      <MessageSkeleton align="left" />
+      <MessageSkeleton align="right" />
+      <MessageSkeleton align="left" />
+      <MessageSkeleton align="right" />
+    </div>
+  )
+}
 
 interface ChatPanelProps {
   conversation: ConversationWithRelations
@@ -22,6 +49,7 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
   const { profile } = useAuthContext()
   const {
     messages,
+    hasLoaded,
     aiSuggestion,
     sendingMessage,
     sendMessage,
@@ -131,19 +159,27 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto bg-zinc-100" ref={scrollRef} onScroll={handleScroll}>
-          <div className="px-4 py-4 space-y-1">
-            {loadingMore && (
-              <div className="flex justify-center py-2">
-                <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
-              </div>
-            )}
-            {!hasMore && messages.length > 0 && (
-              <p className="text-center text-xs text-zinc-400 py-2">Início da conversa</p>
-            )}
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
-          </div>
+          {!hasLoaded ? (
+            <MessageSkeletons />
+          ) : messages.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-xs text-zinc-400">Início da conversa</p>
+            </div>
+          ) : (
+            <div className="px-4 py-4 space-y-1">
+              {loadingMore && (
+                <div className="flex justify-center py-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+                </div>
+              )}
+              {!hasMore && messages.length > 0 && (
+                <p className="text-center text-xs text-zinc-400 py-2">Início da conversa</p>
+              )}
+              {messages.map((msg) => (
+                <MessageBubble key={msg.id} message={msg} />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* AI Composer (dual composer with editable segments) */}

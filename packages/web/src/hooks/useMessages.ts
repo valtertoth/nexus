@@ -14,6 +14,7 @@ export function useMessages(conversationId: string | null) {
     sendingMessage,
     hasMore,
     loadingMore,
+    loadedConversations,
     setMessages,
     addMessage,
     updateMessage,
@@ -258,8 +259,11 @@ export function useMessages(conversationId: string | null) {
     }
   }, [conversationId, setSendingMessage, clearAiSuggestion])
 
+  const hasLoaded = conversationId ? loadedConversations.has(conversationId) : false
+
   return {
     messages,
+    hasLoaded,
     aiSuggestion: aiSuggestion?.conversationId === conversationId ? aiSuggestion : null,
     sendingMessage,
     sendMessage,

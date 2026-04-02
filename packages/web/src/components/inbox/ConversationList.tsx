@@ -6,7 +6,37 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { Search, MessageSquare } from 'lucide-react'
-import { Skeleton } from '@/components/ui/skeleton'
+
+function ConversationSkeleton() {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 animate-pulse">
+      <div className="w-10 h-10 rounded-full bg-zinc-200 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="h-4 w-32 bg-zinc-200 rounded mb-2" />
+        <div className="h-3 w-48 bg-zinc-100 rounded" />
+      </div>
+      <div className="h-3 w-10 bg-zinc-100 rounded" />
+    </div>
+  )
+}
+
+function EmptyInbox({ hasSearch }: { hasSearch: boolean }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full px-6 py-12 text-center">
+      <div className="w-12 h-12 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+        <MessageSquare className="w-6 h-6 text-zinc-400" />
+      </div>
+      <p className="text-sm font-medium text-zinc-700 mb-1">
+        {hasSearch ? 'Nenhuma conversa encontrada' : 'Nenhuma conversa'}
+      </p>
+      <p className="text-xs text-zinc-400">
+        {hasSearch
+          ? 'Tente buscar com outros termos.'
+          : 'As conversas aparecerão aqui quando clientes enviarem mensagens.'}
+      </p>
+    </div>
+  )
+}
 
 const filterTabs = [
   { key: 'all', label: 'Todas' },
@@ -86,27 +116,13 @@ export function ConversationList() {
       {/* Conversation list */}
       <ScrollArea className="flex-1">
         {loading ? (
-          <div className="space-y-1 p-2">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-3 px-3 py-3 rounded-lg">
-                <Skeleton className="w-10 h-10 rounded-full shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-3.5 w-2/3" />
-                  <Skeleton className="h-3 w-full" />
-                </div>
-                <Skeleton className="h-3 w-8 shrink-0" />
-              </div>
+          <div className="py-1">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <ConversationSkeleton key={i} />
             ))}
           </div>
         ) : conversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 px-4">
-            <MessageSquare className="w-8 h-8 text-zinc-300 mb-3" />
-            <p className="text-sm text-zinc-400 text-center">
-              {filters.search
-                ? 'Nenhuma conversa encontrada'
-                : 'Nenhuma conversa ainda'}
-            </p>
-          </div>
+          <EmptyInbox hasSearch={!!filters.search} />
         ) : (
           <div>
             {conversations.map((conversation) => (

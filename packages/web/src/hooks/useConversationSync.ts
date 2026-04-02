@@ -126,8 +126,17 @@ export function useConversationSync() {
 
     channelRef.current = channel
 
+    // Auto-refresh conversations when browser comes back online
+    const handleOnline = () => {
+      if (!mountedRef.current) return
+      console.log('[ConversationSync] Back online — refreshing...')
+      fetchAll()
+    }
+    window.addEventListener('online', handleOnline)
+
     return () => {
       mountedRef.current = false
+      window.removeEventListener('online', handleOnline)
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current)
         channelRef.current = null

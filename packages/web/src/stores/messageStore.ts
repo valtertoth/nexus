@@ -17,6 +17,9 @@ interface MessageStore {
   hasMore: Record<string, boolean>
   loadingMore: Record<string, boolean>
 
+  // Tracks which conversations have completed their initial fetch
+  loadedConversations: Set<string>
+
   setMessages: (conversationId: string, messages: Message[]) => void
   addMessage: (conversationId: string, message: Message) => void
   updateMessage: (conversationId: string, messageId: string, data: Partial<Message>) => void
@@ -34,11 +37,17 @@ export const useMessageStore = create<MessageStore>((set) => ({
   sendingMessage: false,
   hasMore: {},
   loadingMore: {},
+  loadedConversations: new Set(),
 
   setMessages: (conversationId, messages) =>
-    set((s) => ({
-      messages: { ...s.messages, [conversationId]: messages },
-    })),
+    set((s) => {
+      const loaded = new Set(s.loadedConversations)
+      loaded.add(conversationId)
+      return {
+        messages: { ...s.messages, [conversationId]: messages },
+        loadedConversations: loaded,
+      }
+    }),
 
   addMessage: (conversationId, message) =>
     set((s) => {
