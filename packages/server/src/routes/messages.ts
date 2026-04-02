@@ -4,6 +4,7 @@ import { authMiddleware } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { sendTextMessage, sendMediaMessage } from '../services/whatsapp.service.js'
+import { withRetry } from '../lib/resilience.js'
 import { downloadAndStore } from '../services/media.service.js'
 import { saveMessage, updateConversationWithMessage } from '../services/conversation.service.js'
 import { requireString, requireUUID } from '../lib/validate.js'
@@ -63,7 +64,12 @@ messages.post('/send', async (c) => {
   let waStatus: 'sent' | 'failed' = 'sent'
 
   try {
-    const result = await sendTextMessage(orgId, contactWaId, content.trim(), replyToWaMessageId)
+    const result = await withRetry(
+      () => sendTextMessage(orgId, contactWaId, content.trim(), replyToWaMessageId),
+      `send message to ${contactWaId}`,
+      1,
+      2000
+    )
     waMessageId = result.messages?.[0]?.id || null
   } catch (err) {
     console.warn('[Messages] WhatsApp send failed, saving locally:', err)
@@ -262,14 +268,19 @@ messages.post('/send-media', async (c) => {
   let waStatus: 'sent' | 'failed' = 'sent'
 
   try {
-    const result = await sendMediaMessage(
-      orgId,
-      contactWaId,
-      contentType as 'image' | 'audio' | 'video' | 'document' | 'sticker',
-      mediaUrl,
-      mimeType,
-      filename,
-      caption || undefined
+    const result = await withRetry(
+      () => sendMediaMessage(
+        orgId,
+        contactWaId,
+        contentType as 'image' | 'audio' | 'video' | 'document' | 'sticker',
+        mediaUrl,
+        mimeType,
+        filename,
+        caption || undefined
+      ),
+      `send media ${contentType} to ${contactWaId}`,
+      1,
+      2000
     )
     waMessageId = result.messages?.[0]?.id || null
     console.log(`[Messages] Media ${contentType} enviada via Cloud API:`, waMessageId)
@@ -382,6 +393,83 @@ messages.post('/retry-media', async (c) => {
   }
 
   return c.json({ retried: failedMessages.length, success, failed })
+})
+
+// POST /api/messages/:messageId/retry — Retry a failed message
+messages.post('/:messageId/retry', authMiddleware, apiRateLimit, async (c) => {
+  const messageId = requireUUID(c.req.param('messageId'), 'messageId')
+  const userId = c.get('userId')
+  const orgId = c.get('orgId')
+
+  // Get the failed message
+  const { data: msg, error } = await supabaseAdmin
+    .from('messages')
+    .select('*')
+    .eq('id', messageId)
+    .eq('org_id', orgId)
+    .eq('wa_status', 'failed')
+    .single()
+
+  if (error || !msg) {
+    return c.json({ error: 'Message not found or not in failed state' }, 404)
+  }
+
+  // Get conversation to find the contact
+  const { data: conv } = await supabaseAdmin
+    .from('conversations')
+    .select('contact_id')
+    .eq('id', msg.conversation_id)
+    .single()
+
+  if (!conv) {
+    return c.json({ error: 'Conversation not found' }, 404)
+  }
+
+  // Get contact wa_id
+  const { data: contact } = await supabaseAdmin
+    .from('contacts')
+    .select('wa_id')
+    .eq('id', conv.contact_id)
+    .single()
+
+  if (!contact) {
+    return c.json({ error: 'Contact not found' }, 404)
+  }
+
+  try {
+    let waResponse
+    if (msg.content_type === 'text') {
+      waResponse = await withRetry(
+        () => sendTextMessage(orgId, contact.wa_id, msg.content),
+        `retry message ${messageId}`,
+        2,
+        2000
+      )
+    } else if (msg.media_url) {
+      waResponse = await withRetry(
+        () => sendMediaMessage(orgId, contact.wa_id, msg.content_type, msg.media_url, msg.media_mime_type, msg.media_filename, msg.content),
+        `retry media ${messageId}`,
+        2,
+        2000
+      )
+    } else {
+      return c.json({ error: 'Cannot retry this message type' }, 400)
+    }
+
+    // Update message status
+    await supabaseAdmin
+      .from('messages')
+      .update({
+        wa_message_id: waResponse.messages?.[0]?.id,
+        wa_status: 'sent',
+      })
+      .eq('id', messageId)
+
+    return c.json({ success: true })
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : 'Retry failed'
+    return c.json({ error: errMsg }, 500)
+  }
 })
 
 export default messages

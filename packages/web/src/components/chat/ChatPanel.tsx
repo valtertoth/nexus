@@ -9,6 +9,7 @@ import { AiComposer } from './AiComposer'
 import { AiConsultPanel } from './AiConsultPanel'
 import { QuoteBuilder } from './QuoteBuilder'
 import { MarkupCalculator } from './MarkupCalculator'
+import { Loader2 } from 'lucide-react'
 import { formatPhone } from '@nexus/shared'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
 import type { AiMode } from '@nexus/shared'
@@ -26,6 +27,9 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
     sendMessage,
     sendMedia,
     clearAiSuggestion,
+    fetchMoreMessages,
+    hasMore,
+    loadingMore,
   } = useMessages(conversation.id)
 
   const [aiMode, setAiMode] = useState<AiMode>('dictated')
@@ -34,6 +38,8 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
   const [quoteOpen, setQuoteOpen] = useState(false)
   const [calculatorOpen, setCalculatorOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const prevScrollHeightRef = useRef<number>(0)
+  const prevMessageCountRef = useRef<number>(0)
 
   // Load AI mode from DB on mount (always fresh, not stale profile cache)
   useEffect(() => {
@@ -48,12 +54,47 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
       })
   }, [profile?.id])
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when NEW messages arrive (appended at end)
+  // Preserve scroll position when OLDER messages are prepended at top
   useEffect(() => {
-    if (scrollRef.current) {
+    if (!scrollRef.current) return
+    const prevCount = prevMessageCountRef.current
+    const currentCount = messages.length
+
+    if (currentCount > prevCount && prevCount > 0 && prevScrollHeightRef.current > 0) {
+      // Messages were prepended (loaded older): preserve scroll position
+      const newScrollHeight = scrollRef.current.scrollHeight
+      const scrollDiff = newScrollHeight - prevScrollHeightRef.current
+      if (scrollDiff > 0 && scrollRef.current.scrollTop < 200) {
+        scrollRef.current.scrollTop = scrollDiff
+      } else {
+        // Messages appended (new message): scroll to bottom
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      }
+    } else {
+      // Initial load or conversation switch: scroll to bottom
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
+
+    prevMessageCountRef.current = currentCount
+    prevScrollHeightRef.current = scrollRef.current.scrollHeight
   }, [messages.length])
+
+  // Reset refs when conversation changes
+  useEffect(() => {
+    prevMessageCountRef.current = 0
+    prevScrollHeightRef.current = 0
+  }, [conversation.id])
+
+  // Infinite scroll: detect when user scrolls near top
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return
+    if (scrollRef.current.scrollTop < 100) {
+      // Save scroll height before fetching so we can preserve position
+      prevScrollHeightRef.current = scrollRef.current.scrollHeight
+      fetchMoreMessages()
+    }
+  }, [fetchMoreMessages])
 
   // Check if service window is active
   const windowExpires = conversation.wa_service_window_expires_at
@@ -89,8 +130,16 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
         />
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto bg-zinc-100" ref={scrollRef}>
+        <div className="flex-1 overflow-y-auto bg-zinc-100" ref={scrollRef} onScroll={handleScroll}>
           <div className="px-4 py-4 space-y-1">
+            {loadingMore && (
+              <div className="flex justify-center py-2">
+                <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+              </div>
+            )}
+            {!hasMore && messages.length > 0 && (
+              <p className="text-center text-xs text-zinc-400 py-2">Início da conversa</p>
+            )}
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}

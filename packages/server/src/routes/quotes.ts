@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { authMiddleware } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
+import { requireUUID, requireString } from '../lib/validate.js'
 import { syncProducts, searchProducts, listProducts } from '../services/shopify.service.js'
 import { createQuote, getQuote, updateQuote, formatQuoteAsText } from '../services/quote.service.js'
 
@@ -51,6 +52,9 @@ quotes.post('/', async (c) => {
   const userId = c.get('userId')
   const body = await c.req.json()
 
+  requireUUID(body.conversationId, 'conversationId')
+  requireUUID(body.contactId, 'contactId')
+
   try {
     const quote = await createQuote({
       orgId,
@@ -75,7 +79,7 @@ quotes.post('/', async (c) => {
 // GET /api/quotes/:id — Get a quote
 quotes.get('/:id', async (c) => {
   const orgId = c.get('orgId')
-  const quoteId = c.req.param('id')
+  const quoteId = requireUUID(c.req.param('id'), 'quoteId')
 
   try {
     const quote = await getQuote(quoteId, orgId)
@@ -90,7 +94,7 @@ quotes.get('/:id', async (c) => {
 // PATCH /api/quotes/:id — Update a quote
 quotes.patch('/:id', async (c) => {
   const orgId = c.get('orgId')
-  const quoteId = c.req.param('id')
+  const quoteId = requireUUID(c.req.param('id'), 'quoteId')
   const body = await c.req.json()
 
   try {
@@ -105,7 +109,7 @@ quotes.patch('/:id', async (c) => {
 // GET /api/quotes/:id/text — Get quote as formatted WhatsApp text
 quotes.get('/:id/text', async (c) => {
   const orgId = c.get('orgId')
-  const quoteId = c.req.param('id')
+  const quoteId = requireUUID(c.req.param('id'), 'quoteId')
 
   try {
     const text = await formatQuoteAsText(quoteId, orgId)
@@ -185,9 +189,8 @@ quotes.put('/shopify/credentials', async (c) => {
   const orgId = c.get('orgId')
   const body = await c.req.json<{ domain: string; accessToken: string }>()
 
-  if (!body.domain || !body.accessToken) {
-    return c.json({ error: 'domain e accessToken são obrigatórios' }, 400)
-  }
+  requireString(body.domain, 'domain')
+  requireString(body.accessToken, 'accessToken')
 
   const { error } = await supabaseAdmin
     .from('organizations')

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { authMiddleware } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
+import { requireUUID, requireString } from '../lib/validate.js'
 import {
   getAvailableTags,
   getConversationTags,
@@ -29,7 +30,7 @@ tags.get('/', async (c) => {
 // GET /api/tags/conversation/:id — Tags on a conversation
 tags.get('/conversation/:id', async (c) => {
   const orgId = c.get('orgId')
-  const conversationId = c.req.param('id')
+  const conversationId = requireUUID(c.req.param('id'), 'conversationId')
 
   // Verify ownership
   const { data: conv } = await supabaseAdmin
@@ -49,10 +50,10 @@ tags.get('/conversation/:id', async (c) => {
 tags.post('/conversation/:id', async (c) => {
   const orgId = c.get('orgId')
   const userId = c.get('userId')
-  const conversationId = c.req.param('id')
+  const conversationId = requireUUID(c.req.param('id'), 'conversationId')
 
   const { tag_slug } = await c.req.json<{ tag_slug: string }>()
-  if (!tag_slug) return c.json({ error: 'tag_slug é obrigatório' }, 400)
+  requireString(tag_slug, 'tag_slug')
 
   // Verify ownership
   const { data: conv } = await supabaseAdmin
@@ -71,8 +72,8 @@ tags.post('/conversation/:id', async (c) => {
 // DELETE /api/tags/conversation/:id/:slug — Remove a tag
 tags.delete('/conversation/:id/:slug', async (c) => {
   const orgId = c.get('orgId')
-  const conversationId = c.req.param('id')
-  const tagSlug = c.req.param('slug')
+  const conversationId = requireUUID(c.req.param('id'), 'conversationId')
+  const tagSlug = requireString(c.req.param('slug'), 'slug')
 
   const { data: conv } = await supabaseAdmin
     .from('conversations')
@@ -90,10 +91,10 @@ tags.delete('/conversation/:id/:slug', async (c) => {
 // POST /api/tags/conversation/:id/suggest — AI tag suggestions
 tags.post('/conversation/:id/suggest', async (c) => {
   const orgId = c.get('orgId')
-  const conversationId = c.req.param('id')
+  const conversationId = requireUUID(c.req.param('id'), 'conversationId')
 
   const { outcome } = await c.req.json<{ outcome: string }>()
-  if (!outcome) return c.json({ error: 'outcome é obrigatório' }, 400)
+  requireString(outcome, 'outcome')
 
   const { data: conv } = await supabaseAdmin
     .from('conversations')
@@ -117,7 +118,7 @@ tags.post('/conversation/:id/suggest', async (c) => {
 // POST /api/tags/conversation/:id/score — Recalculate lead score
 tags.post('/conversation/:id/score', async (c) => {
   const orgId = c.get('orgId')
-  const conversationId = c.req.param('id')
+  const conversationId = requireUUID(c.req.param('id'), 'conversationId')
 
   const { data: conv } = await supabaseAdmin
     .from('conversations')
@@ -144,9 +145,9 @@ tags.post('/custom', async (c) => {
     emoji?: string
   }>()
 
-  if (!body.slug || !body.label || !body.dimension) {
-    return c.json({ error: 'slug, label e dimension são obrigatórios' }, 400)
-  }
+  requireString(body.slug, 'slug')
+  requireString(body.label, 'label')
+  requireString(body.dimension, 'dimension')
 
   await createCustomTag(orgId, body)
   return c.json({ success: true })

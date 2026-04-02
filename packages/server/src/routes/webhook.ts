@@ -20,49 +20,10 @@ import { generateSuggestion } from '../services/ai.service.js'
 import { searchProductsByImage, isVisualSearchEnabled, formatProductMatchesForAI } from '../services/visual-search.service.js'
 import { parseUtmFromText, applyPendingAttribution, saveContactAttribution, copyAttributionToConversation } from '../services/attribution.service.js'
 import { supabaseAdmin } from '../lib/supabase.js'
+import { withRetry, withTimeout } from '../lib/resilience.js'
 import { webhookRateLimit } from '../middleware/rateLimit.js'
 
 const webhook = new Hono()
-
-/**
- * Retry wrapper for critical async operations.
- * Retries with linear backoff (delayMs * attempt).
- */
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  label: string,
-  maxRetries = 2,
-  delayMs = 1000
-): Promise<T> {
-  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
-    try {
-      return await fn()
-    } catch (err) {
-      if (attempt > maxRetries) {
-        console.error(`[Webhook] ${label} failed after ${maxRetries + 1} attempts:`, err)
-        throw err
-      }
-      console.warn(`[Webhook] ${label} attempt ${attempt} failed, retrying in ${delayMs * attempt}ms...`)
-      await new Promise(r => setTimeout(r, delayMs * attempt))
-    }
-  }
-  throw new Error('unreachable')
-}
-
-/**
- * Wrap a promise with a timeout. Rejects with a descriptive error if exceeded.
- */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`[Webhook] ${label} timed out after ${ms}ms`))
-    }, ms)
-    promise
-      .then(resolve)
-      .catch(reject)
-      .finally(() => clearTimeout(timer))
-  })
-}
 
 // GET /webhook — Meta verification challenge
 webhook.get('/', (c) => {

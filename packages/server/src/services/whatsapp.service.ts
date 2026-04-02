@@ -185,6 +185,8 @@ export async function sendTextMessage(
 ): Promise<CloudApiResponse> {
   const { phoneNumberId, accessToken } = await getOrgCredentials(orgId)
 
+  console.log(`[WhatsApp] sending text — to=${to}, orgId=${orgId}${replyToMessageId ? `, replyTo=${replyToMessageId}` : ''}`)
+
   const payload: SendTextPayload = {
     messaging_product: 'whatsapp',
     to,
@@ -210,10 +212,13 @@ export async function sendTextMessage(
 
   if (!response.ok) {
     const error = await response.json()
+    console.error(`[WhatsApp] send text failed — to=${to}, orgId=${orgId}, error=${JSON.stringify(error)}`)
     throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`)
   }
 
-  return response.json() as Promise<CloudApiResponse>
+  const result = await response.json() as CloudApiResponse
+  console.log(`[WhatsApp] text sent — to=${to}, waMessageId=${result.messages?.[0]?.id}`)
+  return result
 }
 
 export async function markAsRead(
@@ -274,6 +279,8 @@ export async function sendMediaMessage(
     mediaPayload.mime_type = mimeType
   }
 
+  console.log(`[WhatsApp] sending ${mediaType} — to=${to}, orgId=${orgId}, mime=${mimeType}`)
+
   const payload = {
     messaging_product: 'whatsapp',
     to,
@@ -295,10 +302,13 @@ export async function sendMediaMessage(
 
   if (!response.ok) {
     const error = await response.json()
+    console.error(`[WhatsApp] send ${mediaType} failed — to=${to}, orgId=${orgId}, error=${JSON.stringify(error)}`)
     throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`)
   }
 
-  return response.json() as Promise<CloudApiResponse>
+  const result = await response.json() as CloudApiResponse
+  console.log(`[WhatsApp] ${mediaType} sent — to=${to}, waMessageId=${result.messages?.[0]?.id}`)
+  return result
 }
 
 export function isServiceWindowActive(expiresAt: string | null): boolean {

@@ -3,6 +3,7 @@ import { serve } from '@hono/node-server'
 import type { ServerType } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
 import { bodyLimit } from 'hono/body-limit'
 import { supabaseAdmin } from './lib/supabase.js'
@@ -17,6 +18,12 @@ import whatsappConnectionRoutes from './routes/whatsapp-connection.js'
 import brainRoutes from './routes/brain.js'
 import ecosystemRoutes from './routes/ecosystem.js'
 import quoteRoutes from './routes/quotes.js'
+
+const ALLOWED_ORIGINS = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:4173', // vite preview
+].filter(Boolean) as string[]
 
 const app = new Hono()
 const startTime = Date.now()
@@ -49,8 +56,11 @@ app.use('*', async (c, next) => {
 app.use('*', logger())
 app.use('*', bodyLimit({ maxSize: 50 * 1024 * 1024 })) // 50MB request body limit
 app.use('*', cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: ALLOWED_ORIGINS,
   credentials: true,
+  allowHeaders: ['Content-Type', 'Authorization'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  maxAge: 86400,
 }))
 
 // Ensure UTF-8 charset on all JSON/text responses
@@ -119,6 +129,20 @@ app.route('/api/whatsapp', whatsappConnectionRoutes)
 app.route('/api/brain', brainRoutes)
 app.route('/api/ecosystem', ecosystemRoutes)
 app.route('/api/quotes', quoteRoutes)
+
+// Global error handler
+app.onError((err, c) => {
+  if (err instanceof HTTPException) {
+    return err.getResponse()
+  }
+
+  console.error('[Server] Unhandled error:', err)
+
+  return c.json({
+    error: 'Internal server error',
+    ...(process.env.NODE_ENV !== 'production' && { message: err.message }),
+  }, 500)
+})
 
 const port = parseInt(process.env.PORT || '3001', 10)
 

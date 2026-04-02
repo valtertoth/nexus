@@ -12,12 +12,17 @@ export function useMessages(conversationId: string | null) {
     messages: allMessages,
     aiSuggestion,
     sendingMessage,
+    hasMore,
+    loadingMore,
     setMessages,
     addMessage,
     updateMessage,
+    prependMessages,
     setAiSuggestion,
     clearAiSuggestion,
     setSendingMessage,
+    setHasMore,
+    setLoadingMore,
   } = useMessageStore()
 
   const { update: updateConversation, resetUnread } = useConversationStore()
@@ -35,26 +40,28 @@ export function useMessages(conversationId: string | null) {
   setAiSuggestionRef.current = setAiSuggestion
   updateConversationRef.current = updateConversation
 
-  // Fetch messages for a conversation
+  // Fetch messages for a conversation (latest 50, newest first then reversed)
   const fetchMessages = useCallback(async (convId: string) => {
     const { data, error } = await supabase
       .from('messages')
       .select('*')
       .eq('conversation_id', convId)
-      .order('created_at', { ascending: true })
-      .limit(100)
+      .order('created_at', { ascending: false })
+      .limit(50)
 
     if (!error && data) {
-      setMessages(convId, data as Message[])
+      const sorted = [...data].reverse() // back to ascending for display
+      setMessages(convId, sorted as Message[])
+      setHasMore(convId, data.length === 50)
 
       // Load existing AI suggestion from the latest contact message
-      const latestContactMsg = [...data]
+      const latestContactMsg = [...sorted]
         .reverse()
         .find((m) => m.sender_type === 'contact' && m.ai_suggested_response)
 
       if (latestContactMsg?.ai_suggested_response) {
-        const contactMsgIndex = data.findIndex((m) => m.id === latestContactMsg.id)
-        const hasAgentReplyAfter = data
+        const contactMsgIndex = sorted.findIndex((m) => m.id === latestContactMsg.id)
+        const hasAgentReplyAfter = sorted
           .slice(contactMsgIndex + 1)
           .some((m) => m.sender_type === 'agent')
 
@@ -68,7 +75,35 @@ export function useMessages(conversationId: string | null) {
         }
       }
     }
-  }, [setMessages, setAiSuggestion])
+  }, [setMessages, setHasMore, setAiSuggestion])
+
+  // Load older messages (infinite scroll up)
+  const fetchMoreMessages = useCallback(async () => {
+    if (!conversationId) return
+    const convMessages = allMessages[conversationId] || []
+    if (convMessages.length === 0) return
+    if (loadingMore[conversationId]) return
+    if (hasMore[conversationId] === false) return
+
+    setLoadingMore(conversationId, true)
+
+    const oldestMessage = convMessages[0]
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .lt('created_at', oldestMessage.created_at)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (!error && data) {
+      const sorted = [...data].reverse()
+      prependMessages(conversationId, sorted as Message[])
+      setHasMore(conversationId, data.length === 50)
+    }
+
+    setLoadingMore(conversationId, false)
+  }, [conversationId, allMessages, loadingMore, hasMore, setLoadingMore, prependMessages, setHasMore])
 
   // Fetch when conversationId changes
   useEffect(() => {
@@ -231,5 +266,8 @@ export function useMessages(conversationId: string | null) {
     sendMedia,
     clearAiSuggestion,
     setAiSuggestion,
+    fetchMoreMessages,
+    hasMore: hasMore[conversationId ?? ''] ?? true,
+    loadingMore: loadingMore[conversationId ?? ''] ?? false,
   }
 }

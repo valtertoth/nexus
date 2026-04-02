@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { authMiddleware } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
+import { requireUUID } from '../lib/validate.js'
 import { ingestDocument } from '../services/rag.service.js'
 
 type AuthVars = { Variables: { userId: string; orgId: string } }
@@ -16,9 +17,7 @@ knowledge.post('/process', async (c) => {
   const orgId = c.get('orgId')
   const { documentId } = await c.req.json<{ documentId: string }>()
 
-  if (!documentId) {
-    return c.json({ error: 'documentId é obrigatório' }, 400)
-  }
+  requireUUID(documentId, 'documentId')
 
   // Verify document belongs to org
   const { data: doc } = await supabaseAdmin
@@ -45,7 +44,7 @@ knowledge.post('/process', async (c) => {
 // GET /api/knowledge/sectors/:sectorId/documents — List documents
 knowledge.get('/sectors/:sectorId/documents', async (c) => {
   const orgId = c.get('orgId')
-  const sectorId = c.req.param('sectorId')
+  const sectorId = requireUUID(c.req.param('sectorId'), 'sectorId')
 
   const { data: docs, error } = await supabaseAdmin
     .from('knowledge_documents')
@@ -64,7 +63,7 @@ knowledge.get('/sectors/:sectorId/documents', async (c) => {
 // DELETE /api/knowledge/documents/:documentId — Delete document + chunks + file
 knowledge.delete('/documents/:documentId', async (c) => {
   const orgId = c.get('orgId')
-  const documentId = c.req.param('documentId')
+  const documentId = requireUUID(c.req.param('documentId'), 'documentId')
 
   // Get document info for storage path
   const { data: doc } = await supabaseAdmin
@@ -103,7 +102,7 @@ knowledge.delete('/documents/:documentId', async (c) => {
 // POST /api/knowledge/documents/:documentId/reprocess — Clear chunks and re-ingest
 knowledge.post('/documents/:documentId/reprocess', async (c) => {
   const orgId = c.get('orgId')
-  const documentId = c.req.param('documentId')
+  const documentId = requireUUID(c.req.param('documentId'), 'documentId')
 
   // Verify document exists and belongs to org
   const { data: doc } = await supabaseAdmin

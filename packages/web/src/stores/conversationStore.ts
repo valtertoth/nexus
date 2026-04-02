@@ -51,15 +51,24 @@ export const useConversationStore = create<ConversationStore>((set) => ({
     })),
 
   update: (id, data) =>
-    set((s) => ({
-      conversations: s.conversations
-        .map((c) => (c.id === id ? { ...c, ...data } : c))
-        .sort((a, b) => {
-          const dateA = a.last_message_at ? new Date(a.last_message_at).getTime() : 0
-          const dateB = b.last_message_at ? new Date(b.last_message_at).getTime() : 0
-          return dateB - dateA
-        }),
-    })),
+    set((s) => {
+      const conversations = [...s.conversations]
+      const idx = conversations.findIndex((c) => c.id === id)
+      if (idx === -1) return s
+
+      const updated = { ...conversations[idx], ...data }
+
+      // If last_message_at changed, remove from current position and insert at top
+      // This is O(n) instead of O(n log n) full re-sort
+      if (data.last_message_at) {
+        conversations.splice(idx, 1)
+        conversations.unshift(updated)
+      } else {
+        conversations[idx] = updated
+      }
+
+      return { conversations }
+    }),
 
   updateFilters: (filters) =>
     set((s) => ({

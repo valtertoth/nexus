@@ -3,6 +3,7 @@ import { streamSSE } from 'hono/streaming'
 import { authMiddleware } from '../middleware/auth.js'
 import { aiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
+import { requireUUID, requireString } from '../lib/validate.js'
 import { generateSuggestion, streamSuggestion } from '../services/ai.service.js'
 import { streamConsultation } from '../services/ai-consult.service.js'
 
@@ -19,9 +20,7 @@ ai.post('/suggest', async (c) => {
   const orgId = c.get('orgId')
   const body = await c.req.json<{ conversationId: string }>()
 
-  if (!body.conversationId) {
-    return c.json({ error: 'conversationId é obrigatório' }, 400)
-  }
+  requireUUID(body.conversationId, 'conversationId')
 
   // Get conversation with sector
   const { data: conv } = await supabaseAdmin
@@ -74,7 +73,7 @@ ai.post('/suggest', async (c) => {
 // GET /api/ai/stream/:conversationId — SSE streaming of suggestion
 ai.get('/stream/:conversationId', async (c) => {
   const orgId = c.get('orgId')
-  const conversationId = c.req.param('conversationId')
+  const conversationId = requireUUID(c.req.param('conversationId'), 'conversationId')
 
   // Get conversation with sector
   const { data: conv } = await supabaseAdmin
@@ -129,9 +128,7 @@ ai.post('/consult/:conversationId', async (c) => {
     chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
   }>()
 
-  if (!body.question?.trim()) {
-    return c.json({ error: 'question é obrigatório' }, 400)
-  }
+  requireString(body.question, 'question')
 
   return streamSSE(c, async (stream) => {
     const generator = streamConsultation(

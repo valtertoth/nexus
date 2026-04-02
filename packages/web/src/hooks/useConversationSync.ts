@@ -25,6 +25,12 @@ export function useConversationSync() {
   useEffect(() => {
     mountedRef.current = true
 
+    // Guard: clean up any stale channel from StrictMode double-mount
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current)
+      channelRef.current = null
+    }
+
     async function fetchAll() {
       try {
         // Add AbortController with timeout to prevent hanging
@@ -59,6 +65,9 @@ export function useConversationSync() {
     fetchAll()
 
     // Subscribe for realtime updates (best-effort, not blocking)
+    // NOTE: This subscribes to ALL conversations (org-scoped via RLS).
+    // Future optimization: filter by assigned_to for agent-specific views,
+    // but keep broad subscription for inbox (unassigned conversations must be visible).
     const channel = supabase
       .channel('conversations-realtime')
       .on(
