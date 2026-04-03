@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { Wifi, WifiOff } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { useConnectionStore } from '@/stores/connectionStore'
 
 export function ConnectionStatus() {
