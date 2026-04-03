@@ -96,6 +96,34 @@ export function parseWebhookPayload(body: WebhookPayload): {
             case 'location':
               parsed.location = msg.location
               break
+            case 'interactive': {
+              // Button reply or list reply from the customer
+              const msgAny = msg as unknown as Record<string, Record<string, unknown>>
+              const interactive = msgAny.interactive
+              if (interactive?.type === 'button_reply') {
+                const btn = interactive.button_reply as { id?: string; title?: string } | undefined
+                parsed.text = btn?.title || '[Botão]'
+              } else if (interactive?.type === 'list_reply') {
+                const list = interactive.list_reply as { id?: string; title?: string; description?: string } | undefined
+                parsed.text = list?.title || '[Lista]'
+              } else {
+                parsed.text = '[Resposta interativa]'
+              }
+              break
+            }
+            case 'reaction': {
+              const msgAny = msg as unknown as Record<string, { emoji?: string; message_id?: string }>
+              const reaction = msgAny.reaction
+              parsed.text = reaction?.emoji ? `[Reação: ${reaction.emoji}]` : '[Reação]'
+              break
+            }
+            case 'contacts': {
+              const msgAny = msg as unknown as Record<string, Array<{ name?: { formatted_name?: string } }>>
+              const contacts = msgAny.contacts
+              const contactName = contacts?.[0]?.name?.formatted_name || 'Contato'
+              parsed.text = `[Contato compartilhado: ${contactName}]`
+              break
+            }
           }
 
           if (msg.context) {
@@ -207,11 +235,12 @@ export async function sendTextMessage(
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30_000),
     }
   )
 
   if (!response.ok) {
-    const error = await response.json()
+    const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
     console.error(`[WhatsApp] send text failed — to=${to}, orgId=${orgId}, error=${JSON.stringify(error)}`)
     throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`)
   }
@@ -239,6 +268,7 @@ export async function markAsRead(
         status: 'read',
         message_id: waMessageId,
       }),
+      signal: AbortSignal.timeout(10_000),
     })
     if (!response.ok) {
       console.warn(`[WhatsApp] markAsRead failed for ${waMessageId}: ${response.status}`)
@@ -259,6 +289,7 @@ export async function getMediaUrl(
     try {
       const response = await fetch(`${GRAPH_API_URL}/${mediaId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(15_000),
       })
 
       if (!response.ok) {
@@ -317,11 +348,12 @@ export async function sendMediaMessage(
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30_000),
     }
   )
 
   if (!response.ok) {
-    const error = await response.json()
+    const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
     console.error(`[WhatsApp] send ${mediaType} failed — to=${to}, orgId=${orgId}, error=${JSON.stringify(error)}`)
     throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`)
   }

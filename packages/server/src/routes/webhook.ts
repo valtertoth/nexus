@@ -21,7 +21,7 @@ import { searchProductsByImage, isVisualSearchEnabled, formatProductMatchesForAI
 import { parseUtmFromText, applyPendingAttribution, saveContactAttribution, copyAttributionToConversation } from '../services/attribution.service.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { withRetry, withTimeout } from '../lib/resilience.js'
-import { webhookRateLimit } from '../middleware/rateLimit.js'
+// webhookRateLimit removed — Meta retries on non-200, so 429 causes infinite retry storm
 import { metrics } from '../lib/metrics.js'
 
 const webhook = new Hono()
@@ -29,6 +29,24 @@ const webhook = new Hono()
 // AI suggestion debounce — groups rapid messages from same contact
 const aiDebounceMap = new Map<string, NodeJS.Timeout>()
 const AI_DEBOUNCE_MS = 3000
+
+// Periodic cleanup of stale debounce entries (safety net for leaked timers)
+setInterval(() => {
+  // Map entries are self-cleaning via setTimeout callbacks,
+  // but this catches any edge cases where timers were cancelled without deletion
+  if (aiDebounceMap.size > 1000) {
+    console.warn(`[Webhook] aiDebounceMap has ${aiDebounceMap.size} entries — clearing stale ones`)
+    aiDebounceMap.clear()
+  }
+}, 5 * 60 * 1000).unref()
+
+/** Clean up debounce timers on shutdown */
+export function clearAiDebounceTimers(): void {
+  for (const timer of aiDebounceMap.values()) {
+    clearTimeout(timer)
+  }
+  aiDebounceMap.clear()
+}
 
 // GET /webhook — Meta verification challenge
 webhook.get('/', (c) => {
@@ -48,7 +66,10 @@ webhook.get('/', (c) => {
 })
 
 // POST /webhook — Receive messages from WhatsApp
-webhook.post('/', webhookRateLimit, async (c) => {
+// NOTE: No rate limiter here — Meta retries on ANY non-200 response,
+// so returning 429 would cause an infinite retry storm.
+// Rate limiting is applied to the processing logic instead.
+webhook.post('/', async (c) => {
   metrics.webhookReceived()
 
   // Always return 200 immediately to Meta (they retry on non-200)

@@ -232,6 +232,20 @@ messages.post('/send-media', userApiRateLimit, async (c) => {
     return c.json({ error: `contentType inválido. Use: ${validTypes.join(', ')}` }, 400)
   }
 
+  // WhatsApp media size limits (in bytes)
+  const MEDIA_SIZE_LIMITS: Record<string, number> = {
+    image: 5 * 1024 * 1024,      // 5 MB
+    audio: 16 * 1024 * 1024,     // 16 MB
+    video: 16 * 1024 * 1024,     // 16 MB
+    document: 100 * 1024 * 1024, // 100 MB
+    sticker: 500 * 1024,         // 500 KB
+  }
+  const maxSize = MEDIA_SIZE_LIMITS[contentType] || 16 * 1024 * 1024
+  if (file.size > maxSize) {
+    const maxMB = (maxSize / (1024 * 1024)).toFixed(1)
+    return c.json({ error: `Arquivo excede o limite de ${maxMB}MB para ${contentType}` }, 400)
+  }
+
   // Get conversation with contact wa_id
   const { data: conversation, error: convError } = await supabaseAdmin
     .from('conversations')

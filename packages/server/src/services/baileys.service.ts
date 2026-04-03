@@ -26,8 +26,12 @@ import {
 import { supabaseAdmin } from '../lib/supabase.js'
 import { generateSuggestion } from './ai.service.js'
 import { shouldAnalyzeConversation, generateConversationSnapshot } from './ecosystem.service.js'
+import { withTimeout } from '../lib/resilience.js'
 
 const AUTH_DIR = path.resolve(process.cwd(), '.baileys-auth')
+
+// AI suggestion debounce for Baileys (mirrors webhook.ts pattern)
+const baileysAiDebounceMap = new Map<string, NodeJS.Timeout>()
 
 interface BaileysState {
   socket: WASocket | null
@@ -348,15 +352,24 @@ class BaileysService extends EventEmitter {
       throw new Error('WhatsApp nao conectado via Baileys')
     }
 
+    // WhatsApp text message limit: 4096 characters
+    if (text.length > 4096) {
+      throw new Error('Mensagem excede o limite de 4096 caracteres do WhatsApp')
+    }
+
     // Use JID as-is if it already has @ (preserves @lid vs @s.whatsapp.net)
     // Otherwise default to @s.whatsapp.net
     const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`
     console.log(`[Baileys] Enviando mensagem para JID: ${jid}`)
 
-    const result = await this.state.socket.sendMessage(jid, { text })
-    const messageId = result?.key?.id || crypto.randomUUID()
-
-    return { messageId }
+    try {
+      const result = await this.state.socket.sendMessage(jid, { text })
+      const messageId = result?.key?.id || crypto.randomUUID()
+      return { messageId }
+    } catch (err) {
+      console.error(`[Baileys] sendText failed to ${jid}:`, err instanceof Error ? err.message : err)
+      throw err
+    }
   }
 
   async sendImage(jid: string, buffer: Buffer, mimeType: string, caption?: string): Promise<string | undefined> {
@@ -593,8 +606,17 @@ class BaileysService extends EventEmitter {
     // Trigger AI copilot for incoming contact messages (non-blocking)
     // Skip for history sync — avoid burning tokens on old messages
     if (!isHistorySync && !isFromMe && contentType === 'text' && textContent.length > 1) {
-      console.log(`[Baileys] Acionando IA para mensagem: "${textContent.slice(0, 50)}"`)
-      this.triggerAiSuggestion(conversation.id, textContent, this.orgId!)
+      // Debounce: cancel previous AI call if another message arrives within 3s
+      const debounceKey = conversation.id
+      const existingTimer = baileysAiDebounceMap.get(debounceKey)
+      if (existingTimer) clearTimeout(existingTimer)
+
+      const timer = setTimeout(() => {
+        baileysAiDebounceMap.delete(debounceKey)
+        console.log(`[Baileys] Acionando IA para mensagem: "${textContent.slice(0, 50)}"`)
+        this.triggerAiSuggestion(conversation.id, textContent, this.orgId!)
+      }, 3000)
+      baileysAiDebounceMap.set(debounceKey, timer)
     }
 
     // Trigger ecosystem intelligence (non-blocking, background)
@@ -709,11 +731,15 @@ class BaileysService extends EventEmitter {
         .single()
 
       console.log(`[Baileys] Gerando sugestao IA para conversa ${conversationId}...`)
-      const result = await generateSuggestion(
-        conversationId,
-        messageText,
-        conv?.sector_id || null,
-        orgId
+      const result = await withTimeout(
+        generateSuggestion(
+          conversationId,
+          messageText,
+          conv?.sector_id || null,
+          orgId
+        ),
+        45_000,
+        `AI suggestion for conversation ${conversationId}`
       )
       console.log(`[Baileys] IA sugeriu resposta (${result.tokens.total} tokens, ${result.latencyMs}ms)`)
     } catch (err) {

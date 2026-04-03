@@ -17,8 +17,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     detectSessionInUrl: true,
     autoRefreshToken: true,
-    // Bypass navigator lock to avoid cross-tab lock contention in dev
-    lock: <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>) => fn(),
+    // Bypass navigator lock only in dev to avoid cross-tab lock contention
+    ...(import.meta.env.DEV ? { lock: <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>) => fn() } : {}),
   },
 })
 
@@ -37,10 +37,15 @@ export function getAuthHeaders(): Record<string, string> {
       const parsed = JSON.parse(raw)
       token = parsed?.access_token ?? null
 
-      // Check if token is expired or expiring within 60 seconds
+      // If token is expiring within 60 seconds, trigger background refresh
+      // but STILL USE the current token for this request (it's valid until actual expiry)
       const expiresAt = parsed?.expires_at
       if (expiresAt && expiresAt * 1000 < Date.now() + 60_000) {
-        token = null
+        // Token expired already — can't use it
+        if (expiresAt * 1000 < Date.now()) {
+          token = null
+        }
+        // Trigger background refresh regardless
         supabase.auth.refreshSession().then(({ data }) => {
           if (data?.session) {
             console.log('[Auth] Token refreshed successfully')

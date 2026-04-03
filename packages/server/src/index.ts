@@ -9,7 +9,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { supabaseAdmin } from './lib/supabase.js'
 import { metrics } from './lib/metrics.js'
 
-import webhookRoutes, { processWebhook } from './routes/webhook.js'
+import webhookRoutes, { processWebhook, clearAiDebounceTimers } from './routes/webhook.js'
 import { recoverPendingWebhooks, cleanupWebhookQueue } from './services/webhook-recovery.service.js'
 import messageRoutes from './routes/messages.js'
 import aiRoutes from './routes/ai.js'
@@ -224,6 +224,7 @@ function gracefulShutdown(signal: string): void {
   if (isShuttingDown) return
   isShuttingDown = true
   console.log(`[Nexus] ${signal} received — starting graceful shutdown...`)
+  clearAiDebounceTimers()
   console.log(`[Nexus] Active requests: ${activeRequests}`)
 
   // Stop accepting new connections

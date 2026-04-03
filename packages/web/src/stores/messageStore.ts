@@ -56,14 +56,19 @@ export const useMessageStore = create<MessageStore>((set) => ({
       // Avoid duplicates
       if (existing.some((m) => m.id === message.id)) return s
 
-      // If this is a real agent message (from server/realtime), remove any
-      // optimistic temp messages with matching content
+      // If this is a real agent message (from server/realtime), remove the
+      // oldest temp message (FIFO order ensures correct pairing even for
+      // duplicate content like "ok" sent twice)
       let filtered = existing
       if (message.sender_type === 'agent' && !message.id.startsWith('temp-')) {
+        let removedOne = false
         filtered = existing.filter((m) => {
-          if (!m.id.startsWith('temp-')) return true
-          // Remove temp message if content matches (optimistic confirmation)
-          return m.content !== message.content
+          if (removedOne) return true
+          if (m.id.startsWith('temp-') && m.sender_type === 'agent') {
+            removedOne = true
+            return false // Remove the first (oldest) temp message
+          }
+          return true
         })
       }
 
