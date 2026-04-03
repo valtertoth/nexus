@@ -238,7 +238,7 @@ class BaileysService extends EventEmitter {
 
         for (const msg of msgs) {
           try {
-            await this.handleIncomingMessage(msg)
+            await this.handleIncomingMessage(msg, false) // false = realtime, trigger AI
           } catch (err) {
             console.error('[Baileys] Erro ao processar mensagem:', err)
           }
@@ -252,14 +252,26 @@ class BaileysService extends EventEmitter {
         let processed = 0
         let skipped = 0
 
-        for (const msg of msgs) {
-          try {
-            const saved = await this.handleIncomingMessage(msg)
-            if (saved) processed++
-            else skipped++
-          } catch (err) {
-            skipped++
-            // Don't spam logs for sync errors
+        // Process in batches of 20 with pause to avoid DB overload
+        const BATCH_SIZE = 20
+        const BATCH_DELAY_MS = 200
+
+        for (let i = 0; i < msgs.length; i += BATCH_SIZE) {
+          const batch = msgs.slice(i, i + BATCH_SIZE)
+
+          for (const msg of batch) {
+            try {
+              const saved = await this.handleIncomingMessage(msg, true) // true = history sync, skip AI
+              if (saved) processed++
+              else skipped++
+            } catch (err) {
+              skipped++
+            }
+          }
+
+          // Pause between batches
+          if (i + BATCH_SIZE < msgs.length) {
+            await new Promise(r => setTimeout(r, BATCH_DELAY_MS))
           }
         }
         console.log(`[Baileys] Sync historico: ${processed} salvas, ${skipped} ignoradas`)
@@ -395,7 +407,7 @@ class BaileysService extends EventEmitter {
     return result?.key?.id ?? undefined
   }
 
-  private async handleIncomingMessage(msg: proto.IWebMessageInfo): Promise<boolean> {
+  private async handleIncomingMessage(msg: proto.IWebMessageInfo, isHistorySync: boolean = false): Promise<boolean> {
     if (!this.orgId) return false
 
     // Ignore status messages and protocol messages
@@ -579,13 +591,14 @@ class BaileysService extends EventEmitter {
     })
 
     // Trigger AI copilot for incoming contact messages (non-blocking)
-    if (!isFromMe && contentType === 'text' && textContent.length > 1) {
+    // Skip for history sync — avoid burning tokens on old messages
+    if (!isHistorySync && !isFromMe && contentType === 'text' && textContent.length > 1) {
       console.log(`[Baileys] Acionando IA para mensagem: "${textContent.slice(0, 50)}"`)
       this.triggerAiSuggestion(conversation.id, textContent, this.orgId!)
     }
 
     // Trigger ecosystem intelligence (non-blocking, background)
-    if (!isFromMe) {
+    if (!isHistorySync && !isFromMe) {
       this.triggerEcosystemAnalysis(conversation.id, this.orgId!)
     }
 

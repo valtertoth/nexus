@@ -225,35 +225,55 @@ export async function markAsRead(
   orgId: string,
   waMessageId: string
 ): Promise<void> {
-  const { phoneNumberId, accessToken } = await getOrgCredentials(orgId)
+  try {
+    const { phoneNumberId, accessToken } = await getOrgCredentials(orgId)
 
-  await fetch(`${GRAPH_API_URL}/${phoneNumberId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      status: 'read',
-      message_id: waMessageId,
-    }),
-  })
+    const response = await fetch(`${GRAPH_API_URL}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: waMessageId,
+      }),
+    })
+    if (!response.ok) {
+      console.warn(`[WhatsApp] markAsRead failed for ${waMessageId}: ${response.status}`)
+    }
+  } catch (err) {
+    // Best-effort — never fail the message pipeline for a read receipt
+    console.warn('[WhatsApp] markAsRead error:', err instanceof Error ? err.message : err)
+  }
 }
 
 export async function getMediaUrl(
   accessToken: string,
   mediaId: string
 ): Promise<{ url: string; mime_type: string; file_size: number }> {
-  const response = await fetch(`${GRAPH_API_URL}/${mediaId}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
+  // Retry up to 2 times with 1s delay — media URLs can transiently fail
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(`${GRAPH_API_URL}/${mediaId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
 
-  if (!response.ok) {
-    throw new Error(`Failed to get media URL for ${mediaId}`)
+      if (!response.ok) {
+        throw new Error(`Failed to get media URL for ${mediaId}: ${response.status}`)
+      }
+
+      return response.json() as Promise<{ url: string; mime_type: string; file_size: number }>
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+      }
+    }
   }
-
-  return response.json() as Promise<{ url: string; mime_type: string; file_size: number }>
+  throw lastError!
 }
 
 export async function sendMediaMessage(

@@ -17,6 +17,14 @@ RUN npm ci && \
 COPY packages/shared/ packages/shared/
 COPY packages/server/ packages/server/
 
+# Create non-root user for security
+RUN addgroup --system nexus && adduser --system --ingroup nexus nexus
+
+# Create auth directory with correct permissions (for Baileys)
+RUN mkdir -p /app/.baileys-auth && chown nexus:nexus /app/.baileys-auth
+
+USER nexus
+
 ENV PORT=3001
 
 EXPOSE 3001

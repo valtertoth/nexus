@@ -26,6 +26,10 @@ import { metrics } from '../lib/metrics.js'
 
 const webhook = new Hono()
 
+// AI suggestion debounce — groups rapid messages from same contact
+const aiDebounceMap = new Map<string, NodeJS.Timeout>()
+const AI_DEBOUNCE_MS = 3000
+
 // GET /webhook — Meta verification challenge
 webhook.get('/', (c) => {
   const mode = c.req.query('hub.mode')
@@ -354,13 +358,23 @@ async function processIncomingMessage(
   // Generate for text messages always; for media, only if there's caption or context
   const shouldGenerateAi = msg.type === 'text' || (content && !content.startsWith('['))
   if (content && shouldGenerateAi && aiMode !== 'off') {
-    setImmediate(() => {
+    // Debounce: cancel previous AI call if another message arrives within 3s
+    const debounceKey = conversation.id
+    const existingTimer = aiDebounceMap.get(debounceKey)
+    if (existingTimer) {
+      clearTimeout(existingTimer)
+    }
+
+    const timer = setTimeout(() => {
+      aiDebounceMap.delete(debounceKey)
       withTimeout(
         generateSuggestion(conversation.id, content, conversation.sector_id ?? null, orgId),
         45_000,
         `AI suggestion for conversation ${conversation.id}`
       ).catch((err) => console.error(`[Webhook] AI suggestion failed (msg ${msg.messageId}):`, err))
-    })
+    }, AI_DEBOUNCE_MS)
+
+    aiDebounceMap.set(debounceKey, timer)
   }
 
   metrics.webhookProcessed(Date.now() - startTime)

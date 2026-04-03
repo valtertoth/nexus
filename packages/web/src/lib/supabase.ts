@@ -31,11 +31,29 @@ export function getAuthHeaders(): Record<string, string> {
   const storageKey = `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`
   const raw = localStorage.getItem(storageKey)
   let token: string | null = null
+
   try {
-    token = raw ? JSON.parse(raw)?.access_token : null
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      token = parsed?.access_token ?? null
+
+      // Check if token is expired or expiring within 60 seconds
+      const expiresAt = parsed?.expires_at
+      if (expiresAt && expiresAt * 1000 < Date.now() + 60_000) {
+        token = null
+        supabase.auth.refreshSession().then(({ data }) => {
+          if (data?.session) {
+            console.log('[Auth] Token refreshed successfully')
+          }
+        }).catch(() => {
+          console.warn('[Auth] Token refresh failed')
+        })
+      }
+    }
   } catch {
     token = null
   }
+
   return {
     Authorization: token ? `Bearer ${token}` : '',
     'Content-Type': 'application/json',

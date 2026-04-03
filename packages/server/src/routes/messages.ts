@@ -35,6 +35,11 @@ messages.post('/send', userApiRateLimit, async (c) => {
   requireUUID(conversationId, 'conversationId')
   requireString(content, 'content')
 
+  // WhatsApp text message limit: 4096 characters
+  if (content.length > 4096) {
+    return c.json({ error: 'Mensagem excede o limite de 4096 caracteres do WhatsApp' }, 400)
+  }
+
   // Dedup check: prevent identical messages within 5s
   const { data: recentDup } = await supabaseAdmin
     .from('messages')

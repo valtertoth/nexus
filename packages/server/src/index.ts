@@ -20,11 +20,25 @@ import whatsappConnectionRoutes from './routes/whatsapp-connection.js'
 import brainRoutes from './routes/brain.js'
 import ecosystemRoutes from './routes/ecosystem.js'
 import quoteRoutes from './routes/quotes.js'
+import { baileysService } from './services/baileys.service.js'
+
+// --- Crash Protection ---
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled Promise Rejection:', reason)
+  // Keep the server running — do NOT process.exit
+})
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught Exception:', err)
+  // Attempt graceful shutdown
+  setTimeout(() => process.exit(1), 5000)
+})
 
 const ALLOWED_ORIGINS = [
   process.env.FRONTEND_URL,
-  'http://localhost:5173',
-  'http://localhost:4173', // vite preview
+  ...(process.env.NODE_ENV !== 'production'
+    ? ['http://localhost:5173', 'http://localhost:4173']
+    : []),
 ].filter(Boolean) as string[]
 
 const app = new Hono()
@@ -56,7 +70,10 @@ app.use('*', async (c, next) => {
 
 // Middleware
 app.use('*', logger())
-app.use('*', bodyLimit({ maxSize: 50 * 1024 * 1024 })) // 50MB request body limit
+// Differentiated body limits: small default, large only for media upload
+app.use('/webhook/*', bodyLimit({ maxSize: 1 * 1024 * 1024 })) // 1MB for Meta webhooks
+app.use('/api/messages/send-media', bodyLimit({ maxSize: 50 * 1024 * 1024 })) // 50MB for media
+app.use('*', bodyLimit({ maxSize: 2 * 1024 * 1024 })) // 2MB default
 app.use('*', cors({
   origin: ALLOWED_ORIGINS,
   credentials: true,
@@ -101,12 +118,18 @@ app.get('/health', async (c) => {
       }, 200)
     }
 
+    const waStatus = baileysService.getStatus()
     return c.json({
       status: 'ok',
       timestamp,
       uptime: uptimeMs,
       version: serverVersion,
       db: { status: 'connected' },
+      whatsapp: {
+        status: waStatus.status,
+        phoneNumber: waStatus.phoneNumber,
+        profileName: waStatus.profileName,
+      },
       metrics: metrics.getSnapshot(),
     })
   } catch (err) {

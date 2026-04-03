@@ -301,15 +301,11 @@ ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action
     latency_ms: latencyMs,
   })
 
-  // 10. Update org token count
-  if (org) {
-    await supabaseAdmin
-      .from('organizations')
-      .update({
-        ai_tokens_used_this_month: org.ai_tokens_used_this_month + tokenInfo.total,
-      })
-      .eq('id', orgId)
-  }
+  // 10. Update org token count (atomic via RPC)
+  await supabaseAdmin.rpc('increment_ai_tokens', {
+    p_org_id: orgId,
+    p_tokens: tokenInfo.total,
+  })
 
   console.log(`[AI] Suggestion generated in ${latencyMs}ms — ${tokenInfo.total} tokens — ${sources.length} sources`)
 
@@ -593,15 +589,11 @@ ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action
       latency_ms: latencyMs,
     })
 
-    // Update org tokens
-    if (org) {
-      await supabaseAdmin
-        .from('organizations')
-        .update({
-          ai_tokens_used_this_month: org.ai_tokens_used_this_month + totalTokens,
-        })
-        .eq('id', orgId)
-    }
+    // Update org tokens (atomic via RPC)
+    await supabaseAdmin.rpc('increment_ai_tokens', {
+      p_org_id: orgId,
+      p_tokens: totalTokens,
+    })
 
     yield {
       type: 'done',
