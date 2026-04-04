@@ -15,8 +15,34 @@ whatsappConnection.use('*', apiRateLimit)
 
 // GET /api/whatsapp/status -- Check Cloud API connection status
 whatsappConnection.get('/status', async (c) => {
-  const phoneNumberId = process.env.WA_PHONE_NUMBER_ID
-  const accessToken = process.env.WA_ACCESS_TOKEN
+  const orgId = c.get('orgId')
+
+  // Resolve credentials: env vars first, then org DB
+  let phoneNumberId = process.env.WA_PHONE_NUMBER_ID
+  let accessToken = process.env.WA_ACCESS_TOKEN
+
+  if (!phoneNumberId || !accessToken) {
+    // Try org-level credentials
+    try {
+      const { data: org } = await supabaseAdmin
+        .from('organizations')
+        .select('wa_phone_number_id, wa_access_token_encrypted')
+        .eq('id', orgId)
+        .single()
+
+      if (org?.wa_phone_number_id && org?.wa_access_token_encrypted) {
+        const { data: tokenData } = await supabaseAdmin.rpc('decrypt_wa_token', {
+          encrypted: org.wa_access_token_encrypted,
+        })
+        if (tokenData) {
+          phoneNumberId = org.wa_phone_number_id
+          accessToken = tokenData as string
+        }
+      }
+    } catch {
+      // Ignore — will fall through to disconnected
+    }
+  }
 
   if (!phoneNumberId || !accessToken) {
     return c.json({

@@ -20,7 +20,8 @@ import whatsappConnectionRoutes from './routes/whatsapp-connection.js'
 import brainRoutes from './routes/brain.js'
 import ecosystemRoutes from './routes/ecosystem.js'
 import quoteRoutes from './routes/quotes.js'
-import { baileysService } from './services/baileys.service.js'
+// baileysService no longer used for health checks (Cloud API only)
+// import { baileysService } from './services/baileys.service.js'
 
 // --- Crash Protection ---
 process.on('unhandledRejection', (reason, promise) => {
@@ -118,18 +119,22 @@ app.get('/health', async (c) => {
       }, 200)
     }
 
-    const waStatus = baileysService.getStatus()
+    // Cloud API status: check if credentials are available
+    const waPhoneId = process.env.WA_PHONE_NUMBER_ID
+    const waToken = process.env.WA_ACCESS_TOKEN
+    const waStatus = {
+      status: waPhoneId && waToken ? 'configured' : 'not_configured',
+      phoneNumberId: waPhoneId || null,
+      hasToken: !!waToken,
+    }
+
     return c.json({
       status: 'ok',
       timestamp,
       uptime: uptimeMs,
       version: serverVersion,
       db: { status: 'connected' },
-      whatsapp: {
-        status: waStatus.status,
-        phoneNumber: waStatus.phoneNumber,
-        profileName: waStatus.profileName,
-      },
+      whatsapp: waStatus,
       metrics: metrics.getSnapshot(),
       webhookQueue: getWebhookQueueStats(),
     })

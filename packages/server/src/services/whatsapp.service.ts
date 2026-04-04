@@ -174,8 +174,26 @@ export function validateWebhookSignature(
 
 // --- Sending ---
 
+// Cache credentials in memory to avoid repeated DB calls + decryption
+let credentialsCache: { phoneNumberId: string; accessToken: string; orgId: string; cachedAt: number } | null = null
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
 async function getOrgCredentials(orgId: string) {
-  // Try org-level credentials from database first
+  // Return cached credentials if fresh
+  if (credentialsCache && credentialsCache.orgId === orgId && Date.now() - credentialsCache.cachedAt < CACHE_TTL_MS) {
+    return { phoneNumberId: credentialsCache.phoneNumberId, accessToken: credentialsCache.accessToken }
+  }
+
+  // Strategy 1: Environment variables (most reliable, no decryption needed)
+  const envPhoneNumberId = process.env.WA_PHONE_NUMBER_ID
+  const envAccessToken = process.env.WA_ACCESS_TOKEN
+
+  if (envPhoneNumberId && envAccessToken) {
+    credentialsCache = { phoneNumberId: envPhoneNumberId, accessToken: envAccessToken, orgId, cachedAt: Date.now() }
+    return { phoneNumberId: envPhoneNumberId, accessToken: envAccessToken }
+  }
+
+  // Strategy 2: Org-level encrypted credentials from database
   const { data } = await supabaseAdmin
     .from('organizations')
     .select('wa_phone_number_id, wa_access_token_encrypted')
@@ -183,47 +201,22 @@ async function getOrgCredentials(orgId: string) {
     .single()
 
   if (data?.wa_phone_number_id && data?.wa_access_token_encrypted) {
-    // Try decrypting via RPC (requires app.encryption_secret set in DB)
+    // Try decrypt via RPC (requires app.encryption_secret set in DB or decrypt_wa_token_with_key function)
     const { data: tokenData, error: rpcError } = await supabaseAdmin.rpc('decrypt_wa_token', {
       encrypted: data.wa_access_token_encrypted,
     })
 
+    if (!rpcError && tokenData) {
+      console.log(`[WhatsApp] credentials loaded via DB decrypt for org=${orgId}`)
+      credentialsCache = { phoneNumberId: data.wa_phone_number_id, accessToken: tokenData as string, orgId, cachedAt: Date.now() }
+      return { phoneNumberId: data.wa_phone_number_id, accessToken: tokenData as string }
+    }
     if (rpcError) {
-      console.warn(`[WhatsApp] decrypt_wa_token RPC failed for org=${orgId}: ${rpcError.message}`)
-      // Fallback: try decrypting via SQL with explicit secret from env
-      const encSecret = process.env.ENCRYPTION_SECRET
-      if (encSecret) {
-        const { data: tokenViaSQL, error: sqlError } = await supabaseAdmin.rpc('decrypt_wa_token_with_key', {
-          encrypted: data.wa_access_token_encrypted,
-          secret_key: encSecret,
-        })
-        if (!sqlError && tokenViaSQL) {
-          console.log(`[WhatsApp] credentials loaded via fallback decrypt for org=${orgId}`)
-          return {
-            phoneNumberId: data.wa_phone_number_id,
-            accessToken: tokenViaSQL as string,
-          }
-        }
-        console.warn(`[WhatsApp] fallback decrypt also failed: ${sqlError?.message}`)
-      }
-    } else if (tokenData) {
-      return {
-        phoneNumberId: data.wa_phone_number_id,
-        accessToken: tokenData as string,
-      }
+      console.warn(`[WhatsApp] decrypt_wa_token failed for org=${orgId}: ${rpcError.message}`)
     }
   }
 
-  // Fallback to environment variables
-  const phoneNumberId = process.env.WA_PHONE_NUMBER_ID
-  const accessToken = process.env.WA_ACCESS_TOKEN
-
-  if (!phoneNumberId || !accessToken) {
-    throw new Error('WhatsApp não configurado para esta organização')
-  }
-
-  console.log(`[WhatsApp] using env var credentials for org=${orgId}`)
-  return { phoneNumberId, accessToken }
+  throw new Error('WhatsApp não configurado — defina WA_PHONE_NUMBER_ID e WA_ACCESS_TOKEN nas variáveis de ambiente')
 }
 
 export async function sendTextMessage(
