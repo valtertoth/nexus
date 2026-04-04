@@ -4,6 +4,7 @@ import { useConversations } from '@/hooks/useConversations'
 import { useConversationStore } from '@/stores/conversationStore'
 import { fetchMoreConversations } from '@/hooks/useConversationSync'
 import { useAuthContext } from '@/components/auth/AuthProvider'
+import { supabase } from '@/lib/supabase'
 import { ConversationItem } from './ConversationItem'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
@@ -23,7 +24,7 @@ function ConversationSkeleton() {
   )
 }
 
-function EmptyInbox({ hasSearch }: { hasSearch: boolean }) {
+function EmptyInbox({ hasSearch, onRetry }: { hasSearch: boolean; onRetry?: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center h-full px-6 py-12 text-center">
       <div className="w-12 h-12 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
@@ -32,11 +33,19 @@ function EmptyInbox({ hasSearch }: { hasSearch: boolean }) {
       <p className="text-sm font-medium text-zinc-700 mb-1">
         {hasSearch ? 'Nenhuma conversa encontrada' : 'Nenhuma conversa'}
       </p>
-      <p className="text-xs text-zinc-400">
+      <p className="text-xs text-zinc-400 mb-3">
         {hasSearch
           ? 'Tente buscar com outros termos.'
           : 'As conversas aparecerão aqui quando clientes enviarem mensagens.'}
       </p>
+      {!hasSearch && onRetry && (
+        <button
+          onClick={onRetry}
+          className="text-xs text-zinc-500 hover:text-zinc-900 underline underline-offset-2 transition-colors"
+        >
+          Tentar novamente
+        </button>
+      )}
     </div>
   )
 }
@@ -124,7 +133,14 @@ export function ConversationList() {
           ))}
         </div>
       ) : conversations.length === 0 ? (
-        <EmptyInbox hasSearch={!!filters.search} />
+        <EmptyInbox
+          hasSearch={!!filters.search}
+          onRetry={async () => {
+            // Refresh session and reload page to recover from stale auth
+            await supabase.auth.refreshSession()
+            window.location.reload()
+          }}
+        />
       ) : (
         <VirtualizedConversationList
           conversations={conversations}

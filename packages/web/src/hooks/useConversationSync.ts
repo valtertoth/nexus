@@ -57,9 +57,53 @@ export function useConversationSync() {
 
         if (error) {
           console.error('[ConversationSync] Fetch error:', error.message)
+
+          // If auth error, try refreshing session once
+          if (error.message?.includes('JWT') || error.code === 'PGRST301' || error.code === '401') {
+            console.log('[ConversationSync] Auth error detected, refreshing session...')
+            const { error: refreshError } = await supabase.auth.refreshSession()
+            if (refreshError) {
+              console.error('[ConversationSync] Session refresh failed — redirecting to login')
+              window.location.href = '/login'
+              return
+            }
+            // Retry fetch after refresh
+            const { data: retryData } = await supabase
+              .from('conversations')
+              .select(CONVERSATION_SELECT)
+              .order('last_message_at', { ascending: false, nullsFirst: false })
+              .limit(PAGE_SIZE)
+            if (retryData && mountedRef.current) {
+              storeRef.current.setConversations(retryData as ConversationWithRelations[])
+              storeRef.current.setHasMore(retryData.length === PAGE_SIZE)
+            }
+          }
         } else if (data && mountedRef.current) {
           storeRef.current.setConversations(data as ConversationWithRelations[])
           storeRef.current.setHasMore(data.length === PAGE_SIZE)
+
+          // If we're authenticated but got 0 results, session might be stale — try refreshing
+          if (data.length === 0) {
+            console.warn('[ConversationSync] 0 conversations returned — checking session...')
+            const { data: sessionData } = await supabase.auth.getSession()
+            if (sessionData?.session) {
+              // Session exists — try refreshing it
+              const { data: refreshData } = await supabase.auth.refreshSession()
+              if (refreshData?.session) {
+                // Retry fetch with fresh session
+                const { data: retryData } = await supabase
+                  .from('conversations')
+                  .select(CONVERSATION_SELECT)
+                  .order('last_message_at', { ascending: false, nullsFirst: false })
+                  .limit(PAGE_SIZE)
+                if (retryData && retryData.length > 0 && mountedRef.current) {
+                  console.log(`[ConversationSync] Session refreshed — got ${retryData.length} conversations`)
+                  storeRef.current.setConversations(retryData as ConversationWithRelations[])
+                  storeRef.current.setHasMore(retryData.length === PAGE_SIZE)
+                }
+              }
+            }
+          }
         }
       } catch (err) {
         console.error('[ConversationSync] Fetch exception:', err)
