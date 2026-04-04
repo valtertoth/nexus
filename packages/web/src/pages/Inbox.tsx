@@ -19,10 +19,6 @@ export default function Inbox() {
   const sendMessageRef = useRef<(text: string) => void>(() => {})
   const insertInComposerRef = useRef<(text: string) => void>(() => {})
 
-  const togglePanel = useCallback((tab: 'details' | 'products' | 'calculator' | 'consult') => {
-    setRightPanel((prev) => (prev === tab ? null : tab))
-  }, [])
-
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
   const sendMediaUrl = useCallback(async (url: string, contentType: 'image' | 'document' | 'video', caption?: string, filename?: string) => {
@@ -51,7 +47,7 @@ export default function Inbox() {
   }, [selectedConversation, API_BASE])
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full overflow-hidden">
       {/* Column 1: Conversation List (320px) */}
       <div className="w-80 shrink-0">
         <ConversationList />
@@ -62,8 +58,6 @@ export default function Inbox() {
         {selectedConversation ? (
           <ChatPanel
             conversation={selectedConversation}
-            rightPanel={rightPanel}
-            onToggleRightPanel={togglePanel}
             sendMessageRef={sendMessageRef}
             insertInComposerRef={insertInComposerRef}
           />

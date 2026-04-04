@@ -12,8 +12,6 @@ import { cn } from '@/lib/utils'
 import { formatPhone } from '@nexus/shared'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
 import type { AiMode } from '@nexus/shared'
-import type { RightPanelTab } from '@/pages/Inbox'
-
 function MessageSkeleton({ align }: { align: 'left' | 'right' }) {
   return (
     <div className={cn('flex mb-2', align === 'right' ? 'justify-end' : 'justify-start')}>
@@ -42,13 +40,11 @@ function MessageSkeletons() {
 
 interface ChatPanelProps {
   conversation: ConversationWithRelations
-  rightPanel: RightPanelTab
-  onToggleRightPanel: (tab: 'details' | 'products' | 'calculator' | 'consult') => void
   sendMessageRef?: MutableRefObject<(text: string) => void>
   insertInComposerRef?: MutableRefObject<(text: string) => void>
 }
 
-export function ChatPanel({ conversation, rightPanel, onToggleRightPanel, sendMessageRef, insertInComposerRef }: ChatPanelProps) {
+export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }: ChatPanelProps) {
   const { profile } = useAuthContext()
   const {
     messages,
@@ -174,8 +170,6 @@ export function ChatPanel({ conversation, rightPanel, onToggleRightPanel, sendMe
           conversation={conversation}
           aiMode={aiMode}
           onAiModeChange={setAiMode}
-          rightPanel={rightPanel}
-          onToggleRightPanel={onToggleRightPanel}
           onOpenQuote={() => setQuoteOpen(true)}
         />
 

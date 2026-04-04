@@ -152,8 +152,9 @@ function VirtualizedConversationList({
   const virtualizer = useVirtualizer({
     count: conversations.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 72, // ~72px per conversation item
+    estimateSize: () => 88, // ~88px per conversation item (accounts for sector tag)
     overscan: 8, // render 8 extra items above/below viewport
+    measureElement: (el) => el.getBoundingClientRect().height, // dynamic measurement
   })
 
   // Load more when scrolling near the bottom
@@ -187,6 +188,8 @@ function VirtualizedConversationList({
           return (
             <div
               key={conversation.id}
+              ref={virtualizer.measureElement}
+              data-index={virtualItem.index}
               style={{
                 position: 'absolute',
                 top: 0,

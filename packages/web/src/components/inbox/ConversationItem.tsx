@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { getInitials, truncate } from '@nexus/shared'
+import { getAvatarColor } from '@/lib/avatarColors'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
 
 interface ConversationItemProps {
@@ -23,6 +24,7 @@ export function ConversationItem({ conversation, isSelected, onSelect }: Convers
   const contact = conversation.contact
   const contactName = contact?.name || contact?.wa_id || 'Desconhecido'
   const initials = getInitials(contactName)
+  const avatarColor = getAvatarColor(contactName)
   const hasUnread = conversation.unread_count > 0
 
   const timeAgo = conversation.last_message_at
@@ -46,7 +48,7 @@ export function ConversationItem({ conversation, isSelected, onSelect }: Convers
       <div className="relative shrink-0">
         <Avatar className="w-10 h-10">
           {contact?.avatar_url && <AvatarImage src={contact.avatar_url} alt={contactName} />}
-          <AvatarFallback className="bg-zinc-200 text-zinc-600 text-sm">
+          <AvatarFallback className={`${avatarColor.bg} ${avatarColor.text} text-sm font-medium`}>
             {initials}
           </AvatarFallback>
         </Avatar>

@@ -5,6 +5,7 @@ import { Separator } from '@/components/ui/separator'
 import { Phone, Mail, Calendar, Tag, X, ChevronDown, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getInitials, formatPhone } from '@nexus/shared'
+import { getAvatarColor } from '@/lib/avatarColors'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { supabase } from '@/lib/supabase'
@@ -111,6 +112,7 @@ const PRIORITY_OPTIONS = [
 export function ContactPanel({ conversation, onClose, embedded }: ContactPanelProps) {
   const contact = conversation.contact
   const contactName = contact?.name || contact?.wa_id || 'Desconhecido'
+  const avatarColor = getAvatarColor(contactName)
   const { update: updateConversation } = useConversationStore()
   const [sectors, setSectors] = useState<Sector[]>([])
   const [savingField, setSavingField] = useState<string | null>(null)
@@ -186,7 +188,7 @@ export function ContactPanel({ conversation, onClose, embedded }: ContactPanelPr
       <div className="flex flex-col items-center px-4 py-6">
         <Avatar className="w-16 h-16 mb-3">
           {contact?.avatar_url && <AvatarImage src={contact.avatar_url} alt={contactName} />}
-          <AvatarFallback className="bg-zinc-200 text-zinc-600 text-lg">
+          <AvatarFallback className={`${avatarColor.bg} ${avatarColor.text} text-lg font-medium`}>
             {getInitials(contactName)}
           </AvatarFallback>
         </Avatar>
@@ -250,7 +252,7 @@ export function ContactPanel({ conversation, onClose, embedded }: ContactPanelPr
         {/* Status — read-only badge */}
         <div className="flex items-center justify-between">
           <span className="text-xs text-zinc-400">Status</span>
-          <Badge variant="outline" className={`text-[11px] ${statusBadge.className}`}>
+          <Badge variant="outline" className={`text-xs ${statusBadge.className}`}>
             {statusBadge.label}
           </Badge>
         </div>

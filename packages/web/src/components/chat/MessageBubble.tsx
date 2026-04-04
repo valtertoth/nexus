@@ -96,7 +96,7 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
                 {isAiApproved && !isContact && (
                   <Sparkles className="w-3 h-3 text-amber-300 opacity-70" />
                 )}
-                <span className={cn('text-xs', isContact ? 'text-zinc-400' : 'text-zinc-400')}>
+                <span className={cn('text-xs', isContact ? 'text-zinc-400' : 'text-zinc-500')}>
                   {time}
                 </span>
                 {!isContact && <StatusIcon status={message.wa_status} />}
@@ -115,7 +115,7 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
                 {isAiApproved && !isContact && (
                   <Sparkles className="w-3 h-3 text-amber-300 opacity-70" />
                 )}
-                <span className={cn('text-xs', isContact ? 'text-zinc-400' : 'text-zinc-400')}>
+                <span className={cn('text-xs', isContact ? 'text-zinc-400' : 'text-zinc-500')}>
                   {time}
                 </span>
                 {!isContact && <StatusIcon status={message.wa_status} />}

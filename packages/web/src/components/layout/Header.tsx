@@ -24,6 +24,9 @@ export function Header() {
   const title = pageTitles[location.pathname] ?? 'Nexus'
   const amOnline = profile ? isUserOnline(profile.id) : false
 
+  // Hide on Inbox — the chat has its own header
+  if (location.pathname === '/') return null
+
   return (
     <header className="flex items-center justify-between h-11 px-5 border-b border-zinc-100 bg-white">
       <h1 className="text-sm font-medium text-zinc-800 tracking-tight">
