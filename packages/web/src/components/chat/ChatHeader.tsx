@@ -19,6 +19,8 @@ import {
   TrendingDown,
   AlertTriangle,
   BrainCircuit,
+  User,
+  Package,
   ShoppingCart,
   Calculator,
 } from 'lucide-react'
@@ -31,16 +33,15 @@ import { toast } from 'sonner'
 import { useConversationStore } from '@/stores/conversationStore'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
 import type { AiMode, ConversationOutcome } from '@nexus/shared'
+import type { RightPanelTab } from '@/pages/Inbox'
 
 interface ChatHeaderProps {
   conversation: ConversationWithRelations
   aiMode: AiMode
   onAiModeChange: (mode: AiMode) => void
-  onToggleConsult?: () => void
-  consultOpen?: boolean
+  rightPanel: RightPanelTab
+  onToggleRightPanel: (tab: 'details' | 'products' | 'calculator' | 'consult') => void
   onOpenQuote?: () => void
-  onToggleCalculator?: () => void
-  calculatorOpen?: boolean
 }
 
 const OUTCOME_BADGES: Record<ConversationOutcome, { label: string; className: string }> = {
@@ -49,7 +50,7 @@ const OUTCOME_BADGES: Record<ConversationOutcome, { label: string; className: st
   problem: { label: 'Problema', className: 'bg-amber-100 text-amber-700 border-amber-200' },
 }
 
-export function ChatHeader({ conversation, aiMode, onAiModeChange, onToggleConsult, consultOpen, onOpenQuote, onToggleCalculator, calculatorOpen }: ChatHeaderProps) {
+export function ChatHeader({ conversation, aiMode, onAiModeChange, rightPanel, onToggleRightPanel, onOpenQuote }: ChatHeaderProps) {
   const [outcomeOpen, setOutcomeOpen] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const { update: updateConversation } = useConversationStore()
@@ -166,18 +167,57 @@ export function ChatHeader({ conversation, aiMode, onAiModeChange, onToggleConsu
         <div className="flex items-center gap-3 shrink-0">
           <AIModeToggle value={aiMode} onChange={onAiModeChange} />
 
-          <button
-            onClick={onToggleConsult}
-            className={cn(
-              'inline-flex items-center justify-center rounded-md h-8 w-8 transition-colors',
-              consultOpen
-                ? 'bg-zinc-900 text-white'
-                : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
-            )}
-            aria-label="Consultar IA"
-          >
-            <BrainCircuit className="w-4 h-4" />
-          </button>
+          {/* Right sidebar toggles — mutually exclusive */}
+          <div className="flex items-center gap-0.5 bg-zinc-100 rounded-lg p-0.5">
+            <button
+              onClick={() => onToggleRightPanel('details')}
+              className={cn(
+                'inline-flex items-center justify-center rounded-md h-7 w-7 transition-colors',
+                rightPanel === 'details'
+                  ? 'bg-white text-zinc-900 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-600'
+              )}
+              aria-label="Detalhes do contato"
+            >
+              <User className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onToggleRightPanel('products')}
+              className={cn(
+                'inline-flex items-center justify-center rounded-md h-7 w-7 transition-colors',
+                rightPanel === 'products'
+                  ? 'bg-white text-zinc-900 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-600'
+              )}
+              aria-label="Painel de produtos"
+            >
+              <Package className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onToggleRightPanel('calculator')}
+              className={cn(
+                'inline-flex items-center justify-center rounded-md h-7 w-7 transition-colors',
+                rightPanel === 'calculator'
+                  ? 'bg-white text-zinc-900 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-600'
+              )}
+              aria-label="Calculadora de markup"
+            >
+              <Calculator className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onToggleRightPanel('consult')}
+              className={cn(
+                'inline-flex items-center justify-center rounded-md h-7 w-7 transition-colors',
+                rightPanel === 'consult'
+                  ? 'bg-white text-zinc-900 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-600'
+              )}
+              aria-label="Consultar IA"
+            >
+              <BrainCircuit className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
           <button
             onClick={onOpenQuote}
@@ -185,19 +225,6 @@ export function ChatHeader({ conversation, aiMode, onAiModeChange, onToggleConsu
             aria-label="Criar orcamento"
           >
             <ShoppingCart className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={onToggleCalculator}
-            className={cn(
-              'inline-flex items-center justify-center rounded-md h-8 w-8 transition-colors',
-              calculatorOpen
-                ? 'bg-zinc-900 text-white'
-                : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
-            )}
-            aria-label="Calculadora de markup"
-          >
-            <Calculator className="w-4 h-4" />
           </button>
 
           <DropdownMenu>

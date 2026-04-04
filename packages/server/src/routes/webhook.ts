@@ -23,27 +23,54 @@ import { supabaseAdmin } from '../lib/supabase.js'
 import { withRetry, withTimeout } from '../lib/resilience.js'
 // webhookRateLimit removed — Meta retries on non-200, so 429 causes infinite retry storm
 import { metrics } from '../lib/metrics.js'
+import PQueue from 'p-queue'
 
 const webhook = new Hono()
 
-// AI suggestion debounce — groups rapid messages from same contact
-const aiDebounceMap = new Map<string, NodeJS.Timeout>()
-const AI_DEBOUNCE_MS = 3000
+// --- Backpressure: limit concurrent webhook processing ---
+// Prevents memory exhaustion under burst traffic.
+// Max 15 concurrent webhook processors, rest queued in memory.
+const webhookQueue = new PQueue({ concurrency: 15 })
 
-// Periodic cleanup of stale debounce entries (safety net for leaked timers)
-setInterval(() => {
-  // Map entries are self-cleaning via setTimeout callbacks,
-  // but this catches any edge cases where timers were cancelled without deletion
-  if (aiDebounceMap.size > 1000) {
-    console.warn(`[Webhook] aiDebounceMap has ${aiDebounceMap.size} entries — clearing stale ones`)
-    aiDebounceMap.clear()
+/** Expose queue stats for health endpoint */
+export function getWebhookQueueStats() {
+  return {
+    pending: webhookQueue.pending,
+    running: webhookQueue.size,
+    concurrency: 15,
   }
-}, 5 * 60 * 1000).unref()
+}
+
+// AI suggestion debounce — groups rapid messages from same contact
+interface DebounceEntry {
+  timer: NodeJS.Timeout
+  createdAt: number
+}
+const aiDebounceMap = new Map<string, DebounceEntry>()
+const AI_DEBOUNCE_MS = 3000
+const DEBOUNCE_TTL_MS = 60_000 // 60s max lifetime per entry (safety net)
+
+// Periodic TTL-based cleanup — removes entries older than 60s individually.
+// This prevents unbounded growth without nuking all pending AI suggestions.
+setInterval(() => {
+  const now = Date.now()
+  let evicted = 0
+  for (const [key, entry] of aiDebounceMap) {
+    if (now - entry.createdAt > DEBOUNCE_TTL_MS) {
+      clearTimeout(entry.timer)
+      aiDebounceMap.delete(key)
+      evicted++
+    }
+  }
+  if (evicted > 0) {
+    console.log(`[Webhook] Evicted ${evicted} stale debounce entries (remaining: ${aiDebounceMap.size})`)
+  }
+}, 30_000).unref() // Check every 30s
 
 /** Clean up debounce timers on shutdown */
 export function clearAiDebounceTimers(): void {
-  for (const timer of aiDebounceMap.values()) {
-    clearTimeout(timer)
+  for (const entry of aiDebounceMap.values()) {
+    clearTimeout(entry.timer)
   }
   aiDebounceMap.clear()
 }
@@ -122,8 +149,9 @@ webhook.post('/', async (c) => {
     console.warn('[Webhook] Queue insert failed (processing anyway):', err)
   }
 
-  // Process in background — return 200 to Meta immediately
-  setImmediate(async () => {
+  // Process via concurrency-limited queue — return 200 to Meta immediately.
+  // Max 15 concurrent processors. Excess webhooks wait in the queue.
+  webhookQueue.add(async () => {
     try {
       await processWebhook(body)
 
@@ -150,7 +178,7 @@ webhook.post('/', async (c) => {
           .eq('id', queueId)
       }
     }
-  })
+  }).catch(() => { /* errors handled inside */ })
 
   return c.text('OK', 200)
 })
@@ -381,9 +409,9 @@ async function processIncomingMessage(
   if (content && shouldGenerateAi && aiMode !== 'off') {
     // Debounce: cancel previous AI call if another message arrives within 3s
     const debounceKey = conversation.id
-    const existingTimer = aiDebounceMap.get(debounceKey)
-    if (existingTimer) {
-      clearTimeout(existingTimer)
+    const existingEntry = aiDebounceMap.get(debounceKey)
+    if (existingEntry) {
+      clearTimeout(existingEntry.timer)
     }
 
     const timer = setTimeout(() => {
@@ -395,7 +423,7 @@ async function processIncomingMessage(
       ).catch((err) => console.error(`[Webhook] AI suggestion failed (msg ${msg.messageId}):`, err))
     }, AI_DEBOUNCE_MS)
 
-    aiDebounceMap.set(debounceKey, timer)
+    aiDebounceMap.set(debounceKey, { timer, createdAt: Date.now() })
   }
 
   metrics.webhookProcessed(Date.now() - startTime)

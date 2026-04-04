@@ -19,13 +19,18 @@ interface ConversationStore {
   selectedId: string | null
   filters: ConversationFilters
   loading: boolean
+  hasMore: boolean
+  loadingMore: boolean
 
   setConversations: (conversations: ConversationWithRelations[]) => void
+  appendConversations: (conversations: ConversationWithRelations[]) => void
   select: (id: string | null) => void
   add: (conversation: ConversationWithRelations) => void
   update: (id: string, data: Partial<ConversationWithRelations>) => void
   updateFilters: (filters: Partial<ConversationFilters>) => void
   setLoading: (loading: boolean) => void
+  setLoadingMore: (loading: boolean) => void
+  setHasMore: (hasMore: boolean) => void
   incrementUnread: (id: string) => void
   resetUnread: (id: string) => void
 }
@@ -40,8 +45,17 @@ export const useConversationStore = create<ConversationStore>((set) => ({
     search: '',
   },
   loading: true,
+  hasMore: true,
+  loadingMore: false,
 
   setConversations: (conversations) => set({ conversations, loading: false }),
+
+  appendConversations: (newConversations) =>
+    set((s) => {
+      const existingIds = new Set(s.conversations.map((c) => c.id))
+      const deduped = newConversations.filter((c) => !existingIds.has(c.id))
+      return { conversations: [...s.conversations, ...deduped] }
+    }),
 
   select: (id) => set({ selectedId: id }),
 
@@ -76,6 +90,8 @@ export const useConversationStore = create<ConversationStore>((set) => ({
     })),
 
   setLoading: (loading) => set({ loading }),
+  setLoadingMore: (loadingMore) => set({ loadingMore }),
+  setHasMore: (hasMore) => set({ hasMore }),
 
   incrementUnread: (id) =>
     set((s) => ({

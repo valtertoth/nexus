@@ -11,6 +11,8 @@ interface MarkupCalculatorProps {
   open: boolean
   onClose: () => void
   onInsertInChat?: (text: string) => void
+  /** When true, renders without own header/border/animation (parent handles chrome) */
+  embedded?: boolean
 }
 
 // ─── Health styles ──────────────────────────────────────────────────────────
@@ -133,7 +135,7 @@ function CollapsibleSection({
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
-export function MarkupCalculator({ open, onClose, onInsertInChat }: MarkupCalculatorProps) {
+export function MarkupCalculator({ open, onClose, onInsertInChat, embedded }: MarkupCalculatorProps) {
   const calc = useMarkupCalculator()
   const [copied, setCopied] = useState(false)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -178,45 +180,48 @@ export function MarkupCalculator({ open, onClose, onInsertInChat }: MarkupCalcul
     })
   }, [calc, onInsertInChat])
 
-  if (!open) return null
-
   const acqSummary = `+${calc.acquisitionRate.toFixed(1).replace('.', ',')}%`
   const salesSummary = `${calc.salesRate.toFixed(1).replace('.', ',')}%`
 
-  return (
-    <div className="w-[380px] shrink-0 border-l border-zinc-200 bg-white flex flex-col h-full animate-in slide-in-from-right-4 duration-200 overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 h-14 border-b border-zinc-200 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-zinc-100">
-            <svg
-              className="w-4 h-4 text-zinc-700"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              viewBox="0 0 24 24"
-            >
-              <rect x="4" y="2" width="16" height="20" rx="2" />
-              <line x1="8" y1="6" x2="16" y2="6" />
-              <line x1="8" y1="10" x2="8" y2="10.01" />
-              <line x1="12" y1="10" x2="12" y2="10.01" />
-              <line x1="16" y1="10" x2="16" y2="10.01" />
-              <line x1="8" y1="14" x2="8" y2="14.01" />
-              <line x1="12" y1="14" x2="12" y2="14.01" />
-              <line x1="16" y1="14" x2="16" y2="14.01" />
-              <line x1="8" y1="18" x2="16" y2="18" />
-            </svg>
+  const content = (
+    <div className={cn(
+      'flex flex-col h-full bg-white overflow-hidden',
+      !embedded && 'w-[380px] shrink-0 border-l border-zinc-200 animate-in slide-in-from-right-4 duration-200'
+    )}>
+      {/* Header — hidden when embedded (parent renders tab bar) */}
+      {!embedded && (
+        <div className="flex items-center justify-between px-4 h-14 border-b border-zinc-200 shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-zinc-100">
+              <svg
+                className="w-4 h-4 text-zinc-700"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+              >
+                <rect x="4" y="2" width="16" height="20" rx="2" />
+                <line x1="8" y1="6" x2="16" y2="6" />
+                <line x1="8" y1="10" x2="8" y2="10.01" />
+                <line x1="12" y1="10" x2="12" y2="10.01" />
+                <line x1="16" y1="10" x2="16" y2="10.01" />
+                <line x1="8" y1="14" x2="8" y2="14.01" />
+                <line x1="12" y1="14" x2="12" y2="14.01" />
+                <line x1="16" y1="14" x2="16" y2="14.01" />
+                <line x1="8" y1="18" x2="16" y2="18" />
+              </svg>
+            </div>
+            <span className="text-sm font-semibold text-zinc-900">Calculadora</span>
           </div>
-          <span className="text-sm font-semibold text-zinc-900">Calculadora</span>
+          <button
+            onClick={onClose}
+            className="inline-flex items-center justify-center rounded-md h-7 w-7 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition-colors"
+            aria-label="Fechar calculadora"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
-        <button
-          onClick={onClose}
-          className="inline-flex items-center justify-center rounded-md h-7 w-7 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition-colors"
-          aria-label="Fechar calculadora"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+      )}
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
@@ -564,4 +569,8 @@ export function MarkupCalculator({ open, onClose, onInsertInChat }: MarkupCalcul
       </div>
     </div>
   )
+
+  if (embedded) return content
+  if (!open) return null
+  return content
 }

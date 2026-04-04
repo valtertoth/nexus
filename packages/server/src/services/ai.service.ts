@@ -1,5 +1,12 @@
 import { streamText, generateText } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { withTimeout, CircuitBreaker } from '../lib/resilience.js'
+
+// Circuit breaker: if Claude fails 5 times in a row, stop calling for 60s
+export const claudeCircuitBreaker = new CircuitBreaker('Claude AI', {
+  threshold: 5,
+  cooldownMs: 60_000,
+})
 
 const anthropic = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -242,14 +249,21 @@ ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action
   const userMessage = buildUserMessage(conversationHistory, latestMessage)
 
   // 7. Call Claude via AI SDK (non-streaming for background suggestions)
+  // Circuit breaker + 40s timeout prevents cascading failures
   console.log(`[AI] Chamando Claude (${model})...`)
-  const result = await generateText({
-    model: anthropic(model),
-    system: fullSystemPrompt,
-    messages: [{ role: 'user', content: userMessage }],
-    temperature,
-    maxTokens,
-  })
+  const result = await claudeCircuitBreaker.execute(() =>
+    withTimeout(
+      generateText({
+        model: anthropic(model),
+        system: fullSystemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+        temperature,
+        maxTokens,
+      }),
+      40_000,
+      `Claude ${model} generateText`
+    )
+  )
 
   const suggestion = result.text
   const latencyMs = Date.now() - startTime

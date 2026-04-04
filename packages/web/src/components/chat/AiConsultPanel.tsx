@@ -17,6 +17,8 @@ interface AiConsultPanelProps {
   conversationId: string
   open: boolean
   onClose: () => void
+  /** When true, renders without own header/border/animation (parent handles chrome) */
+  embedded?: boolean
 }
 
 /** Render text with basic markdown: **bold**, newlines preserved */
@@ -31,7 +33,7 @@ function renderMarkdown(text: string) {
   })
 }
 
-export function AiConsultPanel({ conversationId, open, onClose }: AiConsultPanelProps) {
+export function AiConsultPanel({ conversationId, open, onClose, embedded }: AiConsultPanelProps) {
   const [messages, setMessages] = useState<ConsultMessage[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -175,35 +177,53 @@ export function AiConsultPanel({ conversationId, open, onClose }: AiConsultPanel
     setInput('')
   }, [])
 
-  if (!open) return null
+  if (!embedded && !open) return null
 
   return (
-    <div className="w-[380px] shrink-0 flex flex-col h-full border-l border-zinc-200 bg-white animate-in slide-in-from-right-4 duration-200">
-      {/* Header */}
-      <div className="flex items-center justify-between h-14 px-4 border-b border-zinc-200">
-        <div className="flex items-center gap-2">
-          <BrainCircuit className="w-4 h-4 text-zinc-600" />
-          <span className="text-sm font-medium text-zinc-900">Consultar IA</span>
-        </div>
-        <div className="flex items-center gap-1">
-          {messages.length > 0 && (
+    <div className={cn(
+      'flex flex-col h-full bg-white',
+      !embedded && 'w-[380px] shrink-0 border-l border-zinc-200 animate-in slide-in-from-right-4 duration-200'
+    )}>
+      {/* Header — hidden when embedded (parent renders tab bar) */}
+      {!embedded && (
+        <div className="flex items-center justify-between h-14 px-4 border-b border-zinc-200">
+          <div className="flex items-center gap-2">
+            <BrainCircuit className="w-4 h-4 text-zinc-600" />
+            <span className="text-sm font-medium text-zinc-900">Consultar IA</span>
+          </div>
+          <div className="flex items-center gap-1">
+            {messages.length > 0 && (
+              <button
+                onClick={handleClear}
+                className="p-1.5 rounded hover:bg-zinc-100 transition-colors text-zinc-400 hover:text-zinc-600"
+                aria-label="Limpar conversa"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
             <button
-              onClick={handleClear}
+              onClick={onClose}
               className="p-1.5 rounded hover:bg-zinc-100 transition-colors text-zinc-400 hover:text-zinc-600"
-              aria-label="Limpar conversa"
+              aria-label="Fechar painel"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <X className="w-3.5 h-3.5" />
             </button>
-          )}
+          </div>
+        </div>
+      )}
+
+      {/* Clear button when embedded */}
+      {embedded && messages.length > 0 && (
+        <div className="flex justify-end px-3 pt-2">
           <button
-            onClick={onClose}
-            className="p-1.5 rounded hover:bg-zinc-100 transition-colors text-zinc-400 hover:text-zinc-600"
-            aria-label="Fechar painel"
+            onClick={handleClear}
+            className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 transition-colors"
           >
-            <X className="w-3.5 h-3.5" />
+            <Trash2 className="w-3 h-3" />
+            Limpar
           </button>
         </div>
-      </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3" ref={scrollRef}>

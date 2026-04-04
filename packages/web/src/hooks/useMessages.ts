@@ -21,6 +21,7 @@ export function useMessages(conversationId: string | null) {
     updateMessage,
     removeMessage,
     prependMessages,
+    evictOldConversations,
     setAiSuggestion,
     clearAiSuggestion,
     setSendingMessage,
@@ -108,11 +109,14 @@ export function useMessages(conversationId: string | null) {
     setLoadingMore(conversationId, false)
   }, [conversationId, allMessages, loadingMore, hasMore, setLoadingMore, prependMessages, setHasMore])
 
-  // Fetch when conversationId changes
+  // Fetch when conversationId changes + evict old conversations from memory
   useEffect(() => {
     if (conversationId) {
       fetchMessages(conversationId)
       resetUnread(conversationId)
+
+      // Evict oldest cached conversations to cap memory usage
+      evictOldConversations(conversationId)
 
       // Persist unread reset to database so it survives page refresh
       supabase

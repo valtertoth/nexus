@@ -1,11 +1,14 @@
+import { useRef, useEffect, useCallback } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useConversations } from '@/hooks/useConversations'
+import { useConversationStore } from '@/stores/conversationStore'
+import { fetchMoreConversations } from '@/hooks/useConversationSync'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import { ConversationItem } from './ConversationItem'
 import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
-import { Search, MessageSquare } from 'lucide-react'
+import { Search, MessageSquare, Loader2 } from 'lucide-react'
 
 function ConversationSkeleton() {
   return (
@@ -113,29 +116,99 @@ export function ConversationList() {
 
       <Separator />
 
-      {/* Conversation list */}
-      <ScrollArea className="flex-1">
-        {loading ? (
-          <div className="py-1">
-            {Array.from({ length: 7 }).map((_, i) => (
-              <ConversationSkeleton key={i} />
-            ))}
-          </div>
-        ) : conversations.length === 0 ? (
-          <EmptyInbox hasSearch={!!filters.search} />
-        ) : (
-          <div>
-            {conversations.map((conversation) => (
+      {/* Conversation list — virtualized for performance at scale */}
+      {loading ? (
+        <div className="py-1 flex-1 overflow-hidden">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <ConversationSkeleton key={i} />
+          ))}
+        </div>
+      ) : conversations.length === 0 ? (
+        <EmptyInbox hasSearch={!!filters.search} />
+      ) : (
+        <VirtualizedConversationList
+          conversations={conversations}
+          selectedId={selectedId}
+          onSelect={select}
+        />
+      )}
+    </div>
+  )
+}
+
+/** Renders only visible conversation items using virtual scrolling */
+function VirtualizedConversationList({
+  conversations,
+  selectedId,
+  onSelect,
+}: {
+  conversations: ReturnType<typeof useConversations>['conversations']
+  selectedId: string | null
+  onSelect: (id: string) => void
+}) {
+  const parentRef = useRef<HTMLDivElement>(null)
+  const { hasMore, loadingMore } = useConversationStore()
+
+  const virtualizer = useVirtualizer({
+    count: conversations.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 72, // ~72px per conversation item
+    overscan: 8, // render 8 extra items above/below viewport
+  })
+
+  // Load more when scrolling near the bottom
+  const handleScroll = useCallback(() => {
+    const el = parentRef.current
+    if (!el || loadingMore || !hasMore) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distanceFromBottom < 200) {
+      fetchMoreConversations()
+    }
+  }, [loadingMore, hasMore])
+
+  useEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [handleScroll])
+
+  return (
+    <div ref={parentRef} className="flex-1 overflow-auto">
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: '100%',
+          position: 'relative',
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualItem) => {
+          const conversation = conversations[virtualItem.index]
+          return (
+            <div
+              key={conversation.id}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualItem.start}px)`,
+              }}
+            >
               <ConversationItem
-                key={conversation.id}
                 conversation={conversation}
                 isSelected={conversation.id === selectedId}
-                onSelect={select}
+                onSelect={onSelect}
               />
-            ))}
-          </div>
-        )}
-      </ScrollArea>
+            </div>
+          )
+        })}
+      </div>
+      {loadingMore && (
+        <div className="flex items-center justify-center py-3">
+          <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+        </div>
+      )}
     </div>
   )
 }

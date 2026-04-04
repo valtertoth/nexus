@@ -361,6 +361,170 @@ messages.post('/send-media', userApiRateLimit, async (c) => {
   }, 201)
 })
 
+// POST /api/messages/send-media-url — Send media from external URL (e.g. Shopify product images)
+messages.post('/send-media-url', userApiRateLimit, async (c) => {
+  const userId = c.get('userId')
+  const orgId = c.get('orgId')
+
+  const { conversationId, url, contentType: rawType, caption, filename: clientFilename } = await c.req.json<{
+    conversationId: string
+    url: string
+    contentType?: string
+    caption?: string
+    filename?: string
+  }>()
+
+  requireUUID(conversationId, 'conversationId')
+  requireString(url, 'url')
+
+  const contentType = rawType || 'image'
+  const validTypes = ['image', 'audio', 'video', 'document']
+  if (!validTypes.includes(contentType)) {
+    return c.json({ error: `contentType inválido. Use: ${validTypes.join(', ')}` }, 400)
+  }
+
+  // Get conversation with contact wa_id
+  const { data: conversation, error: convError } = await supabaseAdmin
+    .from('conversations')
+    .select('id, org_id, contact_id, contacts(wa_id)')
+    .eq('id', conversationId)
+    .eq('org_id', orgId)
+    .single()
+
+  if (convError || !conversation) {
+    return c.json({ error: 'Conversa não encontrada' }, 404)
+  }
+
+  const contactRaw = (conversation as Record<string, unknown>).contacts as
+    | { wa_id: string } | { wa_id: string }[] | null
+  const contact = Array.isArray(contactRaw) ? contactRaw[0] : contactRaw
+  const contactWaId = contact?.wa_id
+
+  if (!contactWaId) {
+    return c.json({ error: 'Contato sem WhatsApp ID' }, 400)
+  }
+
+  // Download image from URL
+  let buffer: Buffer
+  let mimeType: string
+  try {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    mimeType = res.headers.get('content-type') || 'image/jpeg'
+    const arrayBuf = await res.arrayBuffer()
+    buffer = Buffer.from(arrayBuf)
+  } catch (err) {
+    console.error('[Messages] Failed to download media URL:', err)
+    return c.json({ error: 'Erro ao baixar mídia da URL' }, 500)
+  }
+
+  // Build a human-readable filename for WhatsApp display
+  const fileId = crypto.randomUUID().slice(0, 8)
+
+  // 1) Try extension from the source URL path (most reliable for .pdf, .skp, etc.)
+  const urlPath = new URL(url).pathname
+  const urlExt = urlPath.match(/\.([a-zA-Z0-9]{2,5})(?:\?|$)/)?.[1]?.toLowerCase()
+  // 2) Fallback to MIME type
+  const mimeExt = mimeType.split('/')[1]?.split(';')[0]?.replace('jpeg', 'jpg')
+  const ext = urlExt || mimeExt || 'bin'
+
+  // 3) Try extracting original filename from URL
+  const urlFilename = decodeURIComponent(urlPath.split('/').pop() || '')
+    .replace(/\.[a-zA-Z0-9]{2,5}$/, '') // strip extension
+
+  // 4) Build display filename: client-provided > URL-derived > caption-derived > generic
+  let displayName: string
+  if (clientFilename) {
+    // Frontend sent an explicit name (e.g. "Catalogo_Aparador_Andorra.pdf")
+    displayName = clientFilename
+    // Ensure it has the right extension
+    if (!displayName.toLowerCase().endsWith(`.${ext}`)) {
+      displayName = `${displayName}.${ext}`
+    }
+  } else if (urlFilename && urlFilename.length > 3 && !/^[a-f0-9-]{20,}$/i.test(urlFilename)) {
+    // URL has a meaningful name (not a UUID/hash)
+    displayName = `${urlFilename}.${ext}`
+  } else if (caption) {
+    // Derive from caption: sanitize to filesystem-safe chars
+    const sanitized = caption
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
+      .replace(/[^a-zA-Z0-9\s_-]/g, '')                // keep alphanumeric, space, dash, underscore
+      .trim()
+      .replace(/\s+/g, '_')                             // spaces → underscores
+      .slice(0, 60)                                     // reasonable length
+    displayName = sanitized ? `${sanitized}.${ext}` : `arquivo-${fileId}.${ext}`
+  } else {
+    displayName = `arquivo-${fileId}.${ext}`
+  }
+
+  const filename = displayName
+  const storagePath = `${orgId}/${conversationId}/${fileId}_${filename}`
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from('media')
+    .upload(storagePath, buffer, { contentType: mimeType, upsert: true })
+
+  if (uploadError) {
+    console.error('[Messages] Storage upload failed:', uploadError.message)
+    return c.json({ error: 'Erro ao fazer upload do arquivo' }, 500)
+  }
+
+  const { data: signedData } = await supabaseAdmin.storage
+    .from('media')
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 365)
+
+  const mediaUrl = signedData?.signedUrl || storagePath
+
+  // Send via WhatsApp
+  let waMessageId: string | null = null
+  let waStatus: 'sent' | 'failed' = 'sent'
+
+  try {
+    const result = await withRetry(
+      () => sendMediaMessage(
+        orgId,
+        contactWaId,
+        contentType as 'image' | 'audio' | 'video' | 'document',
+        mediaUrl,
+        mimeType,
+        filename,
+        caption || undefined
+      ),
+      `send media-url ${contentType} to ${contactWaId}`,
+      1,
+      2000
+    )
+    waMessageId = result.messages?.[0]?.id || null
+    metrics.messageSent()
+  } catch (err) {
+    metrics.messageFailed()
+    console.warn('[Messages] Cloud API media-url send failed:', err)
+    waStatus = 'failed'
+  }
+
+  const displayContent = caption || `[${contentType.charAt(0).toUpperCase() + contentType.slice(1)}]`
+
+  const messageId = await saveMessage({
+    conversation_id: conversationId,
+    org_id: orgId,
+    sender_type: 'agent',
+    sender_id: userId,
+    content: displayContent,
+    content_type: contentType as ContentType,
+    wa_message_id: waMessageId || undefined,
+    wa_status: waStatus,
+    media_url: mediaUrl,
+    media_mime_type: mimeType,
+    media_filename: filename,
+    media_size: buffer.length,
+  })
+
+  const preview = caption || `Foto do produto`
+  await updateConversationWithMessage(conversationId, preview, false)
+
+  return c.json({ id: messageId, waMessageId, mediaUrl }, 201)
+})
+
 // POST /api/messages/retry-media — Re-download failed media from WhatsApp
 messages.post('/retry-media', async (c) => {
   const orgId = c.get('orgId')

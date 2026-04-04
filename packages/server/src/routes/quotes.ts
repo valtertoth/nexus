@@ -3,7 +3,7 @@ import { authMiddleware } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { requireUUID, requireString } from '../lib/validate.js'
-import { syncProducts, searchProducts, listProducts } from '../services/shopify.service.js'
+import { syncProducts, searchProducts, listProducts, getProduct } from '../services/shopify.service.js'
 import { createQuote, getQuote, updateQuote, formatQuoteAsText } from '../services/quote.service.js'
 
 type AuthVars = { Variables: { userId: string; orgId: string; userRole: string } }
@@ -40,6 +40,21 @@ quotes.get('/shopify/products', async (c) => {
     return c.json({ products })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro ao buscar produtos'
+    return c.json({ error: message }, 500)
+  }
+})
+
+// GET /api/quotes/shopify/products/:id — Get single product detail
+quotes.get('/shopify/products/:id', async (c) => {
+  const orgId = c.get('orgId')
+  const productId = c.req.param('id')
+
+  try {
+    const product = await getProduct(orgId, productId)
+    if (!product) return c.json({ error: 'Produto não encontrado' }, 404)
+    return c.json({ product })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Erro ao buscar produto'
     return c.json({ error: message }, 500)
   }
 })

@@ -240,60 +240,40 @@ whatsappConnection.post('/profile/photo', async (c) => {
 
     const fileBuffer = await file.arrayBuffer()
 
-    // Step 1: Start resumable upload session
+    // Step 0: Get the Meta App ID from the access token
+    // The Resumable Upload API requires the App ID, NOT the Phone Number ID
+    let appId = process.env.WA_APP_ID
+    if (!appId) {
+      const appRes = await fetch(
+        `${GRAPH_API_URL}/app?access_token=${accessToken}`
+      )
+      if (appRes.ok) {
+        const appData = await appRes.json() as { id: string }
+        appId = appData.id
+      }
+    }
+
+    if (!appId) {
+      return c.json({
+        error: 'Não foi possível obter o App ID do Meta. Configure WA_APP_ID nas variáveis de ambiente.',
+      }, 400)
+    }
+
+    // Step 1: Start resumable upload session using the App ID
     const startUploadRes = await fetch(
-      `${GRAPH_API_URL}/${process.env.WA_APP_ID || phoneNumberId}/uploads?file_length=${file.size}&file_type=${file.type}&access_token=${accessToken}`,
-      { method: 'POST' }
+      `${GRAPH_API_URL}/${appId}/uploads?file_length=${file.size}&file_type=${file.type}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
     )
 
     if (!startUploadRes.ok) {
-      // Fallback: try direct media upload approach
-      const mediaForm = new FormData()
-      mediaForm.append('messaging_product', 'whatsapp')
-      mediaForm.append('file', new Blob([fileBuffer], { type: file.type }), file.name)
-      mediaForm.append('type', file.type)
-
-      const mediaRes = await fetch(
-        `${GRAPH_API_URL}/${phoneNumberId}/media`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: mediaForm,
-        }
-      )
-
-      if (!mediaRes.ok) {
-        const error = await mediaRes.json()
-        return c.json({ error: `Upload falhou: ${JSON.stringify(error)}` }, 502)
-      }
-
-      const mediaResult = await mediaRes.json() as { id: string }
-
-      // Set as profile picture using media handle
-      const profileRes = await fetch(
-        `${GRAPH_API_URL}/${phoneNumberId}/whatsapp_business_profile`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            profile_picture_handle: mediaResult.id,
-          }),
-        }
-      )
-
-      if (!profileRes.ok) {
-        const error = await profileRes.json()
-        return c.json({ error: `Falha ao definir foto: ${JSON.stringify(error)}` }, 502)
-      }
-
-      return c.json({ ok: true })
+      const error = await startUploadRes.json()
+      console.error('[WhatsApp] Failed to start upload session:', error)
+      return c.json({ error: `Falha ao iniciar upload: ${JSON.stringify(error)}` }, 502)
     }
 
-    // Resumable upload path
     const uploadSession = await startUploadRes.json() as { id: string }
 
     // Step 2: Upload the file data
@@ -312,12 +292,13 @@ whatsappConnection.post('/profile/photo', async (c) => {
 
     if (!uploadRes.ok) {
       const error = await uploadRes.json()
+      console.error('[WhatsApp] Failed to upload file data:', error)
       return c.json({ error: `Upload falhou: ${JSON.stringify(error)}` }, 502)
     }
 
     const uploadResult = await uploadRes.json() as { h: string }
 
-    // Step 3: Set as profile picture
+    // Step 3: Set as profile picture using the upload handle
     const profileRes = await fetch(
       `${GRAPH_API_URL}/${phoneNumberId}/whatsapp_business_profile`,
       {
@@ -335,6 +316,7 @@ whatsappConnection.post('/profile/photo', async (c) => {
 
     if (!profileRes.ok) {
       const error = await profileRes.json()
+      console.error('[WhatsApp] Failed to set profile picture:', error)
       return c.json({ error: `Falha ao definir foto: ${JSON.stringify(error)}` }, 502)
     }
 

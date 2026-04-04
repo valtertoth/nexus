@@ -9,7 +9,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { supabaseAdmin } from './lib/supabase.js'
 import { metrics } from './lib/metrics.js'
 
-import webhookRoutes, { processWebhook, clearAiDebounceTimers } from './routes/webhook.js'
+import webhookRoutes, { processWebhook, clearAiDebounceTimers, getWebhookQueueStats } from './routes/webhook.js'
 import { recoverPendingWebhooks, cleanupWebhookQueue } from './services/webhook-recovery.service.js'
 import messageRoutes from './routes/messages.js'
 import aiRoutes from './routes/ai.js'
@@ -131,6 +131,7 @@ app.get('/health', async (c) => {
         profileName: waStatus.profileName,
       },
       metrics: metrics.getSnapshot(),
+      webhookQueue: getWebhookQueueStats(),
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
@@ -232,8 +233,8 @@ function gracefulShutdown(signal: string): void {
     console.log('[Nexus] Server closed — no more incoming connections')
   })
 
-  // Wait for in-flight requests (up to 10s)
-  const shutdownDeadline = Date.now() + 10_000
+  // Wait for in-flight requests (up to 30s — enough for pending AI/media operations)
+  const shutdownDeadline = Date.now() + 30_000
   const interval = setInterval(() => {
     if (activeRequests <= 0 || Date.now() >= shutdownDeadline) {
       clearInterval(interval)

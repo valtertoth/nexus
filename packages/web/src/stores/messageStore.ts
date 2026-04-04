@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import type { Message, AiSuggestionSource } from '@nexus/shared'
 
+// --- Memory management constants ---
+// Max conversations kept in memory simultaneously.
+// When exceeded, oldest accessed conversations are evicted (LRU).
+const MAX_CACHED_CONVERSATIONS = 30
+// Max messages kept per conversation. Oldest are dropped on prepend.
+const MAX_MESSAGES_PER_CONVERSATION = 500
+
 interface AiSuggestionState {
   text: string
   sources: AiSuggestionSource[]
@@ -20,16 +27,27 @@ interface MessageStore {
   // Tracks which conversations have completed their initial fetch
   loadedConversations: Set<string>
 
+  // LRU order: most recently accessed conversation IDs (newest last)
+  _accessOrder: string[]
+
   setMessages: (conversationId: string, messages: Message[]) => void
   addMessage: (conversationId: string, message: Message) => void
   updateMessage: (conversationId: string, messageId: string, data: Partial<Message>) => void
   removeMessage: (conversationId: string, messageId: string) => void
   prependMessages: (conversationId: string, messages: Message[]) => void
+  evictOldConversations: (activeId: string) => void
   setHasMore: (conversationId: string, hasMore: boolean) => void
   setLoadingMore: (conversationId: string, loading: boolean) => void
   setAiSuggestion: (suggestion: AiSuggestionState | null) => void
   clearAiSuggestion: () => void
   setSendingMessage: (sending: boolean) => void
+}
+
+// Helper: update LRU access order (move id to end = most recent)
+function touchAccess(order: string[], id: string): string[] {
+  const filtered = order.filter((x) => x !== id)
+  filtered.push(id)
+  return filtered
 }
 
 export const useMessageStore = create<MessageStore>((set) => ({
@@ -39,6 +57,7 @@ export const useMessageStore = create<MessageStore>((set) => ({
   hasMore: {},
   loadingMore: {},
   loadedConversations: new Set(),
+  _accessOrder: [],
 
   setMessages: (conversationId, messages) =>
     set((s) => {
@@ -47,6 +66,7 @@ export const useMessageStore = create<MessageStore>((set) => ({
       return {
         messages: { ...s.messages, [conversationId]: messages },
         loadedConversations: loaded,
+        _accessOrder: touchAccess(s._accessOrder, conversationId),
       }
     }),
 
@@ -105,11 +125,44 @@ export const useMessageStore = create<MessageStore>((set) => ({
       const existing = s.messages[conversationId] || []
       const existingIds = new Set(existing.map((m) => m.id))
       const newMessages = messages.filter((m) => !existingIds.has(m.id))
+      let combined = [...newMessages, ...existing]
+      // Cap total messages per conversation to prevent unbounded memory growth
+      if (combined.length > MAX_MESSAGES_PER_CONVERSATION) {
+        combined = combined.slice(combined.length - MAX_MESSAGES_PER_CONVERSATION)
+      }
       return {
         messages: {
           ...s.messages,
-          [conversationId]: [...newMessages, ...existing],
+          [conversationId]: combined,
         },
+      }
+    }),
+
+  evictOldConversations: (activeId) =>
+    set((s) => {
+      const order = touchAccess(s._accessOrder, activeId)
+      if (order.length <= MAX_CACHED_CONVERSATIONS) {
+        return { _accessOrder: order }
+      }
+      // Evict oldest conversations (front of the array)
+      const toEvict = order.slice(0, order.length - MAX_CACHED_CONVERSATIONS)
+      const kept = order.slice(order.length - MAX_CACHED_CONVERSATIONS)
+      const newMessages = { ...s.messages }
+      const newHasMore = { ...s.hasMore }
+      const newLoadingMore = { ...s.loadingMore }
+      const newLoaded = new Set(s.loadedConversations)
+      for (const id of toEvict) {
+        delete newMessages[id]
+        delete newHasMore[id]
+        delete newLoadingMore[id]
+        newLoaded.delete(id)
+      }
+      return {
+        messages: newMessages,
+        hasMore: newHasMore,
+        loadingMore: newLoadingMore,
+        loadedConversations: newLoaded,
+        _accessOrder: kept,
       }
     }),
 

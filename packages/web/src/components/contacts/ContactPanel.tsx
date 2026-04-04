@@ -3,6 +3,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Phone, Mail, Calendar, Tag, X, ChevronDown, Loader2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { getInitials, formatPhone } from '@nexus/shared'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -15,6 +16,8 @@ import type { Sector } from '@nexus/shared'
 interface ContactPanelProps {
   conversation: ConversationWithRelations
   onClose: () => void
+  /** When true, header is hidden (rendered by parent Inbox tab bar) */
+  embedded?: boolean
 }
 
 // ─── Inline Select ─────────────────────────────────────────────────
@@ -105,7 +108,7 @@ const PRIORITY_OPTIONS = [
 ]
 
 // ─── Main component ────────────────────────────────────────────────
-export function ContactPanel({ conversation, onClose }: ContactPanelProps) {
+export function ContactPanel({ conversation, onClose, embedded }: ContactPanelProps) {
   const contact = conversation.contact
   const contactName = contact?.name || contact?.wa_id || 'Desconhecido'
   const { update: updateConversation } = useConversationStore()
@@ -164,18 +167,20 @@ export function ContactPanel({ conversation, onClose }: ContactPanelProps) {
   const statusBadge = STATUS_DISPLAY[conversation.status] || STATUS_DISPLAY.open
 
   return (
-    <div className="flex flex-col h-full border-l border-zinc-200 bg-white">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 h-14 border-b border-zinc-200">
-        <span className="text-sm font-medium text-zinc-900">Detalhes</span>
-        <button
-          onClick={onClose}
-          className="text-zinc-400 hover:text-zinc-600 transition-colors"
-          aria-label="Fechar painel"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+    <div className={cn('flex flex-col h-full bg-white', !embedded && 'border-l border-zinc-200')}>
+      {/* Header — hidden when embedded (parent renders tab bar) */}
+      {!embedded && (
+        <div className="flex items-center justify-between px-4 h-14 border-b border-zinc-200">
+          <span className="text-sm font-medium text-zinc-900">Detalhes</span>
+          <button
+            onClick={onClose}
+            className="text-zinc-400 hover:text-zinc-600 transition-colors"
+            aria-label="Fechar painel"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Contact info */}
       <div className="flex flex-col items-center px-4 py-6">

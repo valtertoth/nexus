@@ -12,10 +12,10 @@ export async function recoverPendingWebhooks(
       .from('webhook_queue')
       .select('*')
       .in('status', ['pending', 'processing', 'failed'])
-      .lt('attempts', 5)
+      .lt('attempts', 12)
       .lte('next_retry_at', new Date().toISOString())
       .order('created_at', { ascending: true })
-      .limit(50)
+      .limit(100)
 
     if (error) {
       console.error('[Recovery] Failed to query webhook queue:', error.message)
@@ -79,7 +79,8 @@ export async function recoverPendingWebhooks(
  */
 export async function cleanupWebhookQueue(): Promise<void> {
   try {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    // Keep completed webhooks for 7 days for incident auditing
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
     const { error } = await supabaseAdmin
       .from('webhook_queue')

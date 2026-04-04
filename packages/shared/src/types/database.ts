@@ -495,3 +495,70 @@ export interface AiUsageLogInsert {
   was_approved?: boolean
   was_edited?: boolean
 }
+
+// ─── Shopify Products ────────────────────────────────────────────
+
+export interface ShopifyProductVariant {
+  id: string
+  title: string
+  price: number
+  cost: number | null
+  sku: string | null
+}
+
+export interface ShopifyProduct {
+  id: string
+  org_id: string
+  shopify_id: string
+  title: string
+  description: string | null
+  image_url: string | null
+  images: string[]
+  cost_price: number
+  sale_price: number
+  variants: ShopifyProductVariant[]
+  metafields: Record<string, string | number | boolean | null>
+  tags: string[]
+  handle: string | null
+  product_type: string | null
+  vendor: string | null
+  is_active: boolean
+  synced_at: string
+  created_at: string
+  updated_at: string
+}
+
+// ─── Quotes ──────────────────────────────────────────────────────
+
+export interface QuoteItem {
+  product_id: string
+  title: string
+  image_url?: string
+  cost_price: number
+  markup: number
+  sale_price: number
+  quantity: number
+  subtotal: number
+}
+
+export type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
+
+export interface Quote {
+  id: string
+  org_id: string
+  conversation_id: string
+  contact_id: string
+  items: QuoteItem[]
+  subtotal: number
+  discount_type: 'fixed' | 'percentage' | null
+  discount_value: number
+  total: number
+  payment_terms: string | null
+  notes: string | null
+  seller_id: string | null
+  seller_name: string | null
+  valid_until: string | null
+  status: QuoteStatus
+  created_at: string
+  updated_at: string
+}

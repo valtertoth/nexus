@@ -1,7 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { withTimeout, CircuitBreaker } from '../lib/resilience.js'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
+})
+
+// Circuit breaker: if Vision fails 3 times in a row, stop calling for 60s
+const visionCircuitBreaker = new CircuitBreaker('Claude Vision', {
+  threshold: 3,
+  cooldownMs: 60_000,
 })
 
 const SUPPORTED_IMAGE_TYPES = new Set([
@@ -41,6 +48,7 @@ export async function analyzeImage(
   }
 
   try {
+    return await visionCircuitBreaker.execute(async () => {
     const base64 = buffer.toString('base64')
 
     const userContent: Anthropic.Messages.ContentBlockParam[] = [
@@ -60,11 +68,12 @@ export async function analyzeImage(
       },
     ]
 
-    const result = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 300,
-      messages: [{ role: 'user', content: userContent }],
-      system: `Voce e um assistente de vendas analisando imagens enviadas por clientes via WhatsApp.
+    const result = await withTimeout(
+      anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 300,
+        messages: [{ role: 'user', content: userContent }],
+        system: `Voce e um assistente de vendas analisando imagens enviadas por clientes via WhatsApp.
 Descreva a imagem de forma concisa e util para o vendedor, focando em:
 1. O que e o objeto/produto (tipo, categoria)
 2. Caracteristicas visiveis (cor, material, estilo, tamanho aproximado)
@@ -72,11 +81,14 @@ Descreva a imagem de forma concisa e util para o vendedor, focando em:
 
 Responda em 1-2 frases objetivas em portugues. Nao use emojis. Nao cumprimente.
 Exemplo: "Sofa retratil 3 lugares em tecido suede cinza, estilo contemporaneo. Cliente provavelmente busca produto similar ou orcamento."`,
-    })
+      }),
+      25_000,
+      'Claude Vision analysis'
+    )
 
     const text = result.content
-      .filter((block) => block.type === 'text')
-      .map((block) => (block as Anthropic.Messages.TextBlock).text)
+      .filter((block): block is Anthropic.Messages.TextBlock => block.type === 'text')
+      .map((block) => block.text)
       .join('')
       .trim()
 
@@ -87,6 +99,7 @@ Exemplo: "Sofa retratil 3 lugares em tecido suede cinza, estilo contemporaneo. C
 
     console.log(`[Vision] Success: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`)
     return text
+    }) // end circuitBreaker.execute
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[Vision] Claude Vision failed:', msg)

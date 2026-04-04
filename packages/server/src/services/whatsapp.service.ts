@@ -241,8 +241,15 @@ export async function sendTextMessage(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
-    console.error(`[WhatsApp] send text failed — to=${to}, orgId=${orgId}, error=${JSON.stringify(error)}`)
-    throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`)
+    // Respect Meta's rate limit headers — wait before retry
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('retry-after')
+      const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000
+      console.warn(`[WhatsApp] Rate limited (429) — waiting ${waitMs}ms before retry`)
+      await new Promise(r => setTimeout(r, waitMs))
+    }
+    console.error(`[WhatsApp] send text failed — to=${to}, orgId=${orgId}, status=${response.status}, error=${JSON.stringify(error)}`)
+    throw new Error(`WhatsApp API error (${response.status}): ${JSON.stringify(error)}`)
   }
 
   const result = await response.json() as CloudApiResponse
@@ -325,8 +332,8 @@ export async function sendMediaMessage(
   if (mediaType === 'document' && filename) {
     mediaPayload.filename = filename
   }
-  // WhatsApp Cloud API only accepts mime_type for document and sticker types
-  if (mimeType && ['document', 'sticker'].includes(mediaType)) {
+  // WhatsApp Cloud API only accepts mime_type for sticker type (not document)
+  if (mimeType && mediaType === 'sticker') {
     mediaPayload.mime_type = mimeType
   }
 

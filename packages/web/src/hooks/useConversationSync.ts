@@ -11,6 +11,7 @@ const CONVERSATION_SELECT = `
 `
 
 const MAX_RETRIES = 10
+const PAGE_SIZE = 50
 
 /**
  * Singleton sync hook — call ONCE in a top-level component (e.g. MainLayout).
@@ -49,7 +50,7 @@ export function useConversationSync() {
           .from('conversations')
           .select(CONVERSATION_SELECT)
           .order('last_message_at', { ascending: false, nullsFirst: false })
-          .limit(500)
+          .limit(PAGE_SIZE)
           .abortSignal(controller.signal)
 
         clearTimeout(timeout)
@@ -58,6 +59,7 @@ export function useConversationSync() {
           console.error('[ConversationSync] Fetch error:', error.message)
         } else if (data && mountedRef.current) {
           storeRef.current.setConversations(data as ConversationWithRelations[])
+          storeRef.current.setHasMore(data.length === PAGE_SIZE)
         }
       } catch (err) {
         console.error('[ConversationSync] Fetch exception:', err)
@@ -201,4 +203,41 @@ export function useConversationSync() {
       }
     }
   }, []) // No dependencies — runs once, uses refs for store methods
+}
+
+/**
+ * Load the next page of conversations (called from ConversationList on scroll-to-bottom).
+ */
+export async function fetchMoreConversations(): Promise<void> {
+  const store = useConversationStore.getState()
+  if (store.loadingMore || !store.hasMore) return
+
+  store.setLoadingMore(true)
+
+  try {
+    const existing = store.conversations
+    const lastConv = existing[existing.length - 1]
+    if (!lastConv) return
+
+    const { data, error } = await supabase
+      .from('conversations')
+      .select(CONVERSATION_SELECT)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .lt('last_message_at', lastConv.last_message_at || lastConv.created_at)
+      .limit(PAGE_SIZE)
+
+    if (error) {
+      console.error('[ConversationSync] FetchMore error:', error.message)
+      return
+    }
+
+    if (data) {
+      store.appendConversations(data as ConversationWithRelations[])
+      store.setHasMore(data.length === PAGE_SIZE)
+    }
+  } catch (err) {
+    console.error('[ConversationSync] FetchMore exception:', err)
+  } finally {
+    store.setLoadingMore(false)
+  }
 }

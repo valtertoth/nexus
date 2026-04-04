@@ -4,7 +4,18 @@ import { generateProductEmbeddings } from './visual-search.service.js'
 interface ShopifyGraphQLProduct {
   id: string
   title: string
+  descriptionHtml: string
+  handle: string
+  productType: string
+  vendor: string
+  tags: string[]
   featuredImage?: { url: string }
+  images: {
+    edges: Array<{ node: { url: string; altText?: string } }>
+  }
+  metafields: {
+    edges: Array<{ node: { namespace: string; key: string; value: string; type: string } }>
+  }
   variants: {
     edges: Array<{
       node: {
@@ -65,7 +76,22 @@ export async function syncProducts(orgId: string): Promise<{ synced: number; err
           node {
             id
             title
+            descriptionHtml
+            handle
+            productType
+            vendor
+            tags
             featuredImage { url }
+            images(first: 10) {
+              edges {
+                node { url altText }
+              }
+            }
+            metafields(first: 50) {
+              edges {
+                node { namespace key value type }
+              }
+            }
             variants(first: 10) {
               edges {
                 node {
@@ -141,6 +167,83 @@ export async function syncProducts(orgId: string): Promise<{ synced: number; err
           sku: e.node.sku || null,
         }))
 
+        // Collect all image URLs
+        const images = product.images?.edges?.map((e) => e.node.url) || []
+
+        // Parse metafields into flat key-value map
+        // Resolve file_reference GIDs to actual URLs
+        const metafields: Record<string, string> = {}
+        const fileGidsToResolve: Array<{ metaKey: string; gids: string[] }> = []
+
+        for (const edge of product.metafields?.edges || []) {
+          const { namespace, key, value, type } = edge.node
+          const metaKey = `${namespace}.${key}`
+
+          if (type === 'file_reference' && value.startsWith('gid://')) {
+            fileGidsToResolve.push({ metaKey, gids: [value] })
+          } else if (type === 'list.file_reference') {
+            try {
+              const gids = JSON.parse(value)
+              if (Array.isArray(gids) && gids.length > 0) {
+                fileGidsToResolve.push({ metaKey, gids })
+              }
+            } catch { /* not JSON */ }
+          } else if (type === 'list.metaobject_reference') {
+            // Skip metaobject references (GIDs that can't be resolved to simple values)
+            metafields[metaKey] = value
+          } else {
+            metafields[metaKey] = value
+          }
+        }
+
+        // Resolve file GIDs to URLs in batch
+        if (fileGidsToResolve.length > 0) {
+          const allGids = fileGidsToResolve.flatMap(f => f.gids)
+          const nodesQuery = `{
+            nodes(ids: ${JSON.stringify(allGids)}) {
+              ... on MediaImage { id image { url } }
+              ... on GenericFile { id url }
+            }
+          }`
+          try {
+            const nodesResp = await fetch(graphqlUrl, {
+              method: 'POST',
+              headers: {
+                'X-Shopify-Access-Token': org.shopify_access_token,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ query: nodesQuery }),
+            })
+            const nodesResult = await nodesResp.json()
+            const resolvedMap: Record<string, string> = {}
+            for (const node of nodesResult.data?.nodes || []) {
+              if (!node) continue
+              const url = node.image?.url || node.url
+              if (url && node.id) resolvedMap[node.id] = url
+            }
+
+            for (const { metaKey, gids } of fileGidsToResolve) {
+              const urls = gids.map(g => resolvedMap[g]).filter(Boolean)
+              if (urls.length === 1) {
+                metafields[metaKey] = urls[0]
+              } else if (urls.length > 1) {
+                metafields[metaKey] = JSON.stringify(urls)
+              }
+            }
+          } catch (resolveErr) {
+            console.error(`[Shopify] Failed to resolve file GIDs for ${product.title}:`, resolveErr)
+            // Still save the raw GID values as fallback
+            for (const { metaKey, gids } of fileGidsToResolve) {
+              metafields[metaKey] = gids.length === 1 ? gids[0] : JSON.stringify(gids)
+            }
+          }
+        }
+
+        // Strip HTML tags from description for plain text
+        const description = product.descriptionHtml
+          ? product.descriptionHtml.replace(/<[^>]*>/g, '').trim()
+          : null
+
         await supabaseAdmin
           .from('shopify_products')
           .upsert(
@@ -148,10 +251,17 @@ export async function syncProducts(orgId: string): Promise<{ synced: number; err
               org_id: orgId,
               shopify_id: shopifyId,
               title: product.title,
+              description,
               image_url: product.featuredImage?.url || null,
+              images,
               cost_price: costPrice,
               sale_price: salePrice,
               variants,
+              metafields,
+              tags: product.tags || [],
+              handle: product.handle || null,
+              product_type: product.productType || null,
+              vendor: product.vendor || null,
               is_active: true,
               synced_at: new Date().toISOString(),
             },
@@ -178,6 +288,9 @@ export async function syncProducts(orgId: string): Promise<{ synced: number; err
   return { synced, errors }
 }
 
+// Use wildcard — columns may or may not exist depending on migration state
+const PRODUCT_SELECT = '*'
+
 /**
  * Search products in local cache by title.
  */
@@ -185,10 +298,10 @@ export async function searchProducts(
   orgId: string,
   query: string,
   limit = 20
-): Promise<unknown[]> {
+) {
   const { data, error } = await supabaseAdmin
     .from('shopify_products')
-    .select('*')
+    .select(PRODUCT_SELECT)
     .eq('org_id', orgId)
     .eq('is_active', true)
     .ilike('title', `%${query}%`)
@@ -202,10 +315,10 @@ export async function searchProducts(
 /**
  * Get all active products for an org.
  */
-export async function listProducts(orgId: string, limit = 100): Promise<unknown[]> {
+export async function listProducts(orgId: string, limit = 100) {
   const { data, error } = await supabaseAdmin
     .from('shopify_products')
-    .select('*')
+    .select(PRODUCT_SELECT)
     .eq('org_id', orgId)
     .eq('is_active', true)
     .order('title')
@@ -213,4 +326,19 @@ export async function listProducts(orgId: string, limit = 100): Promise<unknown[
 
   if (error) throw error
   return data || []
+}
+
+/**
+ * Get a single product by ID.
+ */
+export async function getProduct(orgId: string, productId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('shopify_products')
+    .select(PRODUCT_SELECT)
+    .eq('org_id', orgId)
+    .eq('id', productId)
+    .single()
+
+  if (error) throw error
+  return data
 }

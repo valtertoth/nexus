@@ -1,7 +1,14 @@
 import OpenAI from 'openai'
+import { withTimeout, CircuitBreaker } from '../lib/resilience.js'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+})
+
+// Circuit breaker: if Whisper fails 3 times in a row, stop calling for 60s
+const whisperCircuitBreaker = new CircuitBreaker('Whisper Transcription', {
+  threshold: 3,
+  cooldownMs: 60_000,
 })
 
 const SUPPORTED_FORMATS = new Set([
@@ -45,25 +52,31 @@ export async function transcribeAudio(
   const ext = getExtFromMime(baseMime)
 
   try {
-    const blob = new Blob([new Uint8Array(buffer)], { type: baseMime })
-    const file = new File([blob], `audio.${ext}`, { type: baseMime })
+    return await whisperCircuitBreaker.execute(async () => {
+      const blob = new Blob([new Uint8Array(buffer)], { type: baseMime })
+      const file = new File([blob], `audio.${ext}`, { type: baseMime })
 
-    const result = await openai.audio.transcriptions.create({
-      model: 'whisper-1',
-      file,
-      language,
-      response_format: 'text',
-    })
+      const result = await withTimeout(
+        openai.audio.transcriptions.create({
+          model: 'whisper-1',
+          file,
+          language,
+          response_format: 'text',
+        }),
+        30_000,
+        'Whisper transcription'
+      )
 
-    const text = typeof result === 'string' ? result.trim() : (result as unknown as { text: string }).text?.trim()
+      const text = typeof result === 'string' ? result.trim() : (result as unknown as { text: string }).text?.trim()
 
-    if (!text) {
-      console.log('[Transcription] Empty transcription result')
-      return null
-    }
+      if (!text) {
+        console.log('[Transcription] Empty transcription result')
+        return null
+      }
 
-    console.log(`[Transcription] Success: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`)
-    return text
+      console.log(`[Transcription] Success: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`)
+      return text
+    }) // end circuitBreaker.execute
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[Transcription] Whisper API failed:', msg)

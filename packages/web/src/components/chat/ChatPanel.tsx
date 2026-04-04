@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 'react'
 import { useMessages } from '@/hooks/useMessages'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import { supabase } from '@/lib/supabase'
@@ -6,14 +6,13 @@ import { ChatHeader } from './ChatHeader'
 import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
 import { AiComposer } from './AiComposer'
-import { AiConsultPanel } from './AiConsultPanel'
 import { QuoteBuilder } from './QuoteBuilder'
-import { MarkupCalculator } from './MarkupCalculator'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatPhone } from '@nexus/shared'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
 import type { AiMode } from '@nexus/shared'
+import type { RightPanelTab } from '@/pages/Inbox'
 
 function MessageSkeleton({ align }: { align: 'left' | 'right' }) {
   return (
@@ -43,9 +42,13 @@ function MessageSkeletons() {
 
 interface ChatPanelProps {
   conversation: ConversationWithRelations
+  rightPanel: RightPanelTab
+  onToggleRightPanel: (tab: 'details' | 'products' | 'calculator' | 'consult') => void
+  sendMessageRef?: MutableRefObject<(text: string) => void>
+  insertInComposerRef?: MutableRefObject<(text: string) => void>
 }
 
-export function ChatPanel({ conversation }: ChatPanelProps) {
+export function ChatPanel({ conversation, rightPanel, onToggleRightPanel, sendMessageRef, insertInComposerRef }: ChatPanelProps) {
   const { profile } = useAuthContext()
   const {
     messages,
@@ -56,6 +59,7 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
     sendMedia,
     retryMessage,
     clearAiSuggestion,
+    setAiSuggestion,
     fetchMoreMessages,
     hasMore,
     loadingMore,
@@ -63,9 +67,7 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
 
   const [aiMode, setAiMode] = useState<AiMode>('dictated')
   const [composerInitialValue, setComposerInitialValue] = useState('')
-  const [consultOpen, setConsultOpen] = useState(false)
   const [quoteOpen, setQuoteOpen] = useState(false)
-  const [calculatorOpen, setCalculatorOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevScrollHeightRef = useRef<number>(0)
   const prevMessageCountRef = useRef<number>(0)
@@ -134,6 +136,27 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
     setComposerInitialValue('')
   }, [sendMessage])
 
+  // Expose sendMessage to parent via ref (for ProductQuickPanel integration)
+  useEffect(() => {
+    if (sendMessageRef) {
+      sendMessageRef.current = sendMessage
+    }
+  }, [sendMessageRef, sendMessage])
+
+  // Expose copilot suggestion insertion to parent (appears as AI suggestion for approval)
+  useEffect(() => {
+    if (insertInComposerRef) {
+      insertInComposerRef.current = (text: string) => {
+        setAiSuggestion({
+          text,
+          sources: [{ doc_name: 'Painel de Produtos', chunk_id: '', similarity: 1 }],
+          loading: false,
+          conversationId: conversation.id,
+        })
+      }
+    }
+  }, [insertInComposerRef, setAiSuggestion, conversation.id])
+
   const handleAiSendSegment = useCallback((text: string, opts?: { aiApproved?: boolean }) => {
     sendMessage(text, { aiApproved: opts?.aiApproved ?? true })
   }, [sendMessage])
@@ -151,11 +174,9 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
           conversation={conversation}
           aiMode={aiMode}
           onAiModeChange={setAiMode}
-          onToggleConsult={() => setConsultOpen((v) => !v)}
-          consultOpen={consultOpen}
+          rightPanel={rightPanel}
+          onToggleRightPanel={onToggleRightPanel}
           onOpenQuote={() => setQuoteOpen(true)}
-          onToggleCalculator={() => setCalculatorOpen((v) => !v)}
-          calculatorOpen={calculatorOpen}
         />
 
         {/* Messages */}
@@ -212,23 +233,6 @@ export function ChatPanel({ conversation }: ChatPanelProps) {
           }
         />
       </div>
-
-      {/* Markup Calculator (slides in from right) */}
-      <MarkupCalculator
-        open={calculatorOpen}
-        onClose={() => setCalculatorOpen(false)}
-        onInsertInChat={(text) => {
-          setComposerInitialValue(text)
-          setCalculatorOpen(false)
-        }}
-      />
-
-      {/* AI Consult Panel (slides in from right) */}
-      <AiConsultPanel
-        conversationId={conversation.id}
-        open={consultOpen}
-        onClose={() => setConsultOpen(false)}
-      />
 
       {/* Quote Builder (modal overlay) */}
       <QuoteBuilder
