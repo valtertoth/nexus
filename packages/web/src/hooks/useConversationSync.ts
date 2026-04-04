@@ -82,27 +82,19 @@ export function useConversationSync() {
           storeRef.current.setConversations(data as ConversationWithRelations[])
           storeRef.current.setHasMore(data.length === PAGE_SIZE)
 
-          // If we're authenticated but got 0 results, session might be stale — try refreshing
+          // If we're authenticated but got 0 results, session is almost certainly stale
           if (data.length === 0) {
-            console.warn('[ConversationSync] 0 conversations returned — checking session...')
-            const { data: sessionData } = await supabase.auth.getSession()
-            if (sessionData?.session) {
-              // Session exists — try refreshing it
-              const { data: refreshData } = await supabase.auth.refreshSession()
-              if (refreshData?.session) {
-                // Retry fetch with fresh session
-                const { data: retryData } = await supabase
-                  .from('conversations')
-                  .select(CONVERSATION_SELECT)
-                  .order('last_message_at', { ascending: false, nullsFirst: false })
-                  .limit(PAGE_SIZE)
-                if (retryData && retryData.length > 0 && mountedRef.current) {
-                  console.log(`[ConversationSync] Session refreshed — got ${retryData.length} conversations`)
-                  storeRef.current.setConversations(retryData as ConversationWithRelations[])
-                  storeRef.current.setHasMore(retryData.length === PAGE_SIZE)
-                }
-              }
-            }
+            console.warn('[ConversationSync] 0 conversations — session is stale, forcing re-login')
+            // Clear ALL stored auth data and redirect to login
+            try {
+              await supabase.auth.signOut()
+            } catch { /* ignore */ }
+            // Force-clear localStorage auth keys
+            Object.keys(localStorage).filter(k =>
+              k.includes('supabase') || k.includes('sb-') || k.includes('nexus')
+            ).forEach(k => localStorage.removeItem(k))
+            window.location.href = '/login'
+            return
           }
         }
       } catch (err) {
