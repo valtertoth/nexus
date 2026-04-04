@@ -184,39 +184,51 @@ async function getOrgCredentials(orgId: string) {
     return { phoneNumberId: credentialsCache.phoneNumberId, accessToken: credentialsCache.accessToken }
   }
 
-  // Strategy 1: Environment variables (most reliable, no decryption needed)
-  const envPhoneNumberId = process.env.WA_PHONE_NUMBER_ID
-  const envAccessToken = process.env.WA_ACCESS_TOKEN
-
-  if (envPhoneNumberId && envAccessToken) {
-    credentialsCache = { phoneNumberId: envPhoneNumberId, accessToken: envAccessToken, orgId, cachedAt: Date.now() }
-    return { phoneNumberId: envPhoneNumberId, accessToken: envAccessToken }
-  }
-
-  // Strategy 2: Org-level encrypted credentials from database
-  const { data } = await supabaseAdmin
+  // Fetch org data (needed for multiple strategies)
+  const { data: org } = await supabaseAdmin
     .from('organizations')
-    .select('wa_phone_number_id, wa_access_token_encrypted')
+    .select('wa_phone_number_id, wa_access_token_encrypted, settings')
     .eq('id', orgId)
     .single()
 
-  if (data?.wa_phone_number_id && data?.wa_access_token_encrypted) {
-    // Try decrypt via RPC (requires app.encryption_secret set in DB or decrypt_wa_token_with_key function)
+  const phoneNumberId = org?.wa_phone_number_id || process.env.WA_PHONE_NUMBER_ID
+
+  if (!phoneNumberId) {
+    throw new Error('WhatsApp não configurado — WA_PHONE_NUMBER_ID ausente')
+  }
+
+  // Strategy 1: Plaintext token from org settings (most reliable, no decryption)
+  const settingsToken = (org?.settings as Record<string, unknown>)?.wa_access_token as string | undefined
+  if (settingsToken) {
+    console.log(`[WhatsApp] credentials loaded from settings for org=${orgId}`)
+    credentialsCache = { phoneNumberId, accessToken: settingsToken, orgId, cachedAt: Date.now() }
+    return { phoneNumberId, accessToken: settingsToken }
+  }
+
+  // Strategy 2: Environment variables
+  const envAccessToken = process.env.WA_ACCESS_TOKEN
+  if (envAccessToken) {
+    credentialsCache = { phoneNumberId, accessToken: envAccessToken, orgId, cachedAt: Date.now() }
+    return { phoneNumberId, accessToken: envAccessToken }
+  }
+
+  // Strategy 3: Encrypted token from database (requires app.encryption_secret GUC)
+  if (org?.wa_access_token_encrypted) {
     const { data: tokenData, error: rpcError } = await supabaseAdmin.rpc('decrypt_wa_token', {
-      encrypted: data.wa_access_token_encrypted,
+      encrypted: org.wa_access_token_encrypted,
     })
 
     if (!rpcError && tokenData) {
       console.log(`[WhatsApp] credentials loaded via DB decrypt for org=${orgId}`)
-      credentialsCache = { phoneNumberId: data.wa_phone_number_id, accessToken: tokenData as string, orgId, cachedAt: Date.now() }
-      return { phoneNumberId: data.wa_phone_number_id, accessToken: tokenData as string }
+      credentialsCache = { phoneNumberId, accessToken: tokenData as string, orgId, cachedAt: Date.now() }
+      return { phoneNumberId, accessToken: tokenData as string }
     }
     if (rpcError) {
       console.warn(`[WhatsApp] decrypt_wa_token failed for org=${orgId}: ${rpcError.message}`)
     }
   }
 
-  throw new Error('WhatsApp não configurado — defina WA_PHONE_NUMBER_ID e WA_ACCESS_TOKEN nas variáveis de ambiente')
+  throw new Error('WhatsApp não configurado — nenhum access token encontrado')
 }
 
 export async function sendTextMessage(

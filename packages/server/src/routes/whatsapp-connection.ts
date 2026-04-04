@@ -17,31 +17,34 @@ whatsappConnection.use('*', apiRateLimit)
 whatsappConnection.get('/status', async (c) => {
   const orgId = c.get('orgId')
 
-  // Resolve credentials: env vars first, then org DB
-  let phoneNumberId = process.env.WA_PHONE_NUMBER_ID
-  let accessToken = process.env.WA_ACCESS_TOKEN
+  // Resolve credentials: settings > env vars > encrypted DB
+  let phoneNumberId: string | undefined
+  let accessToken: string | undefined
 
-  if (!phoneNumberId || !accessToken) {
-    // Try org-level credentials
-    try {
-      const { data: org } = await supabaseAdmin
-        .from('organizations')
-        .select('wa_phone_number_id, wa_access_token_encrypted')
-        .eq('id', orgId)
-        .single()
+  try {
+    const { data: org } = await supabaseAdmin
+      .from('organizations')
+      .select('wa_phone_number_id, wa_access_token_encrypted, settings')
+      .eq('id', orgId)
+      .single()
 
-      if (org?.wa_phone_number_id && org?.wa_access_token_encrypted) {
-        const { data: tokenData } = await supabaseAdmin.rpc('decrypt_wa_token', {
-          encrypted: org.wa_access_token_encrypted,
-        })
-        if (tokenData) {
-          phoneNumberId = org.wa_phone_number_id
-          accessToken = tokenData as string
-        }
-      }
-    } catch {
-      // Ignore — will fall through to disconnected
+    phoneNumberId = org?.wa_phone_number_id || process.env.WA_PHONE_NUMBER_ID
+
+    // Try plaintext from settings first
+    const settingsToken = (org?.settings as Record<string, unknown>)?.wa_access_token as string | undefined
+    if (settingsToken) {
+      accessToken = settingsToken
+    } else if (process.env.WA_ACCESS_TOKEN) {
+      accessToken = process.env.WA_ACCESS_TOKEN
+    } else if (org?.wa_access_token_encrypted) {
+      const { data: tokenData } = await supabaseAdmin.rpc('decrypt_wa_token', {
+        encrypted: org.wa_access_token_encrypted,
+      })
+      if (tokenData) accessToken = tokenData as string
     }
+  } catch {
+    phoneNumberId = process.env.WA_PHONE_NUMBER_ID
+    accessToken = process.env.WA_ACCESS_TOKEN
   }
 
   if (!phoneNumberId || !accessToken) {
