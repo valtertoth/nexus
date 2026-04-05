@@ -8,10 +8,11 @@ import { ContactPanel } from '@/components/contacts/ContactPanel'
 import { ProductQuickPanel } from '@/components/chat/ProductQuickPanel'
 import { MarkupCalculator } from '@/components/chat/MarkupCalculator'
 import { AiConsultPanel } from '@/components/chat/AiConsultPanel'
-import { MessageSquare, User, Package, Calculator, BrainCircuit } from 'lucide-react'
+import { FretePanel } from '@/components/chat/FretePanel'
+import { MessageSquare, User, Package, Calculator, BrainCircuit, Truck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type RightPanelTab = 'details' | 'products' | 'calculator' | 'consult' | null
+export type RightPanelTab = 'details' | 'products' | 'calculator' | 'consult' | 'frete' | null
 
 export default function Inbox() {
   const { selectedConversation } = useConversations()
@@ -114,6 +115,18 @@ export default function Inbox() {
               Calc
             </button>
             <button
+              onClick={() => setRightPanel('frete')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                rightPanel === 'frete'
+                  ? 'bg-zinc-900 text-white'
+                  : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+              )}
+            >
+              <Truck className="w-3.5 h-3.5" />
+              Frete
+            </button>
+            <button
               onClick={() => setRightPanel('consult')}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
@@ -162,6 +175,14 @@ export default function Inbox() {
                 onInsertInChat={(text) => {
                   insertInComposerRef.current(text)
                 }}
+                embedded
+              />
+            )}
+            {rightPanel === 'frete' && (
+              <FretePanel
+                open={true}
+                onClose={() => setRightPanel(null)}
+                onInsertInChat={(text) => insertInComposerRef.current(text)}
                 embedded
               />
             )}
