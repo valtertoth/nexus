@@ -17,8 +17,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     detectSessionInUrl: true,
     autoRefreshToken: true,
-    // Bypass navigator lock only in dev to avoid cross-tab lock contention
-    ...(import.meta.env.DEV ? { lock: <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>) => fn() } : {}),
+    // Bypass navigator.locks to prevent orphaned lock deadlocks.
+    // Supabase GoTrue uses navigator.locks.request() which can deadlock
+    // in browsers (especially Edge) when tabs are backgrounded or components
+    // unmount during Strict Mode, causing 5s+ delays on every auth operation.
+    lock: <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>) => fn(),
   },
 })
 

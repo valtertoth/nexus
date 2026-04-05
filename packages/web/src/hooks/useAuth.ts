@@ -13,7 +13,7 @@ interface AuthState {
 /**
  * Fetch profile with a timeout to prevent hanging.
  */
-async function fetchProfileWithTimeout(userId: string, timeoutMs = 8000): Promise<User | null> {
+async function fetchProfileWithTimeout(userId: string, timeoutMs = 5000): Promise<User | null> {
   try {
     const result = await Promise.race([
       supabase
