@@ -109,10 +109,6 @@ export function useConversationSync() {
           { event: 'INSERT', schema: 'public', table: 'conversations' },
           async (payload) => {
             if (!mountedRef.current) return
-            console.log('[ConversationSync] INSERT event received:', payload.new.id)
-
-            // Small delay to ensure contact & related data are committed
-            await new Promise((r) => setTimeout(r, 300))
 
             const { data, error } = await supabase
               .from('conversations')
@@ -172,7 +168,7 @@ export function useConversationSync() {
             useConnectionStore.getState().setRealtimeConnected(false)
 
             if (retryCount < MAX_RETRIES && mountedRef.current) {
-              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000)
+              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000) + Math.random() * 1000
               retryCount++
               console.log(`[ConversationSync] Retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`)
               retryTimeout = setTimeout(subscribe, delay)
@@ -187,7 +183,7 @@ export function useConversationSync() {
             useConnectionStore.getState().setRealtimeConnected(false)
 
             if (retryCount < MAX_RETRIES && mountedRef.current) {
-              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000)
+              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000) + Math.random() * 1000
               retryCount++
               retryTimeout = setTimeout(subscribe, delay)
             }

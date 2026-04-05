@@ -36,7 +36,7 @@ const AVATAR_COLORS = [
 
 export default function ProfileSelector() {
   const navigate = useNavigate()
-  const { profiles, addProfile, updateProfile, removeProfile, setActiveProfile } = useProfileStore()
+  const { profiles, addProfile, setProfiles, updateProfile, removeProfile, setActiveProfile } = useProfileStore()
   const activeProfile = useActiveProfile()
   const [sectors, setSectors] = useState<Sector[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -71,22 +71,24 @@ export default function ProfileSelector() {
 
       if (!dbUsers || dbUsers.length === 0) return
 
-      for (const dbUser of dbUsers) {
-        const roleMap: Record<string, Profile['role']> = {
-          owner: 'admin', admin: 'admin', vendedor: 'vendedor',
-          financeiro: 'financeiro', suporte: 'suporte', seller: 'vendedor',
-        }
+      // Batch: build all profiles then set once (avoids N re-renders)
+      const roleMap: Record<string, Profile['role']> = {
+        owner: 'admin', admin: 'admin', vendedor: 'vendedor',
+        financeiro: 'financeiro', suporte: 'suporte', seller: 'vendedor',
+      }
+      const newProfiles: Profile[] = dbUsers.map((dbUser, i) => {
         const rawSectors = dbUser.sectors as { id: string; name: string }[] | { id: string; name: string } | null
         const sector = Array.isArray(rawSectors) ? rawSectors[0] ?? null : rawSectors
-        addProfile({
+        return {
           id: dbUser.id,
           name: dbUser.name || user.email || 'Usuário',
           role: roleMap[dbUser.role] || 'vendedor',
           sectorId: sector?.id || null,
           sectorName: sector?.name || null,
-          avatarColor: AVATAR_COLORS[profiles.length % AVATAR_COLORS.length],
-        })
-      }
+          avatarColor: AVATAR_COLORS[i % AVATAR_COLORS.length],
+        }
+      })
+      setProfiles(newProfiles)
     }
     hydrateFromSupabase()
   }, [profiles.length, addProfile])

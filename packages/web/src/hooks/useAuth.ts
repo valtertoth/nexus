@@ -11,34 +11,33 @@ interface AuthState {
 }
 
 /**
- * Fetch profile with a timeout to prevent hanging.
+ * Fast-path: read session from localStorage without any async calls.
+ * Returns the cached session if it exists and hasn't expired.
  */
-async function fetchProfileWithTimeout(userId: string, timeoutMs = 5000): Promise<User | null> {
+function getCachedSession(): Session | null {
   try {
-    const result = await Promise.race([
-      supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Profile fetch timeout')), timeoutMs)
-      ),
-    ])
-
-    return (result.data as User | null) ?? null
-  } catch (err) {
-    console.warn('[Auth] Profile fetch timed out or failed:', err)
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+    const storageKey = `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`
+    const raw = localStorage.getItem(storageKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    // Check if token is expired
+    if (parsed?.expires_at && parsed.expires_at * 1000 < Date.now()) return null
+    return parsed as Session
+  } catch {
     return null
   }
 }
 
 export function useAuth() {
+  // Fast-path: initialize from localStorage synchronously to avoid loading flash
+  const cachedSession = getCachedSession()
+
   const [state, setState] = useState<AuthState>({
-    session: null,
-    authUser: null,
+    session: cachedSession,
+    authUser: cachedSession?.user ?? null,
     profile: null,
-    loading: true,
+    loading: !cachedSession, // If we have a cached session, don't show loading
   })
 
   const mountedRef = useRef(true)
@@ -46,74 +45,92 @@ export function useAuth() {
   useEffect(() => {
     mountedRef.current = true
 
-    // Get initial session — always validate + refresh to prevent stale JWT
     async function init() {
       try {
-        const { data: { session: cachedSession } } = await supabase.auth.getSession()
+        // Step 1: Get session from Supabase (reads localStorage, very fast with lock bypass)
+        const { data: { session: currentSession } } = await supabase.auth.getSession()
 
-        if (!cachedSession) {
-          // No session at all — not authenticated
+        if (!currentSession) {
           if (mountedRef.current) {
             setState({ session: null, authUser: null, profile: null, loading: false })
           }
           return
         }
 
-        // Always try to refresh the session to ensure the JWT is valid.
-        // getSession() only reads localStorage — it does NOT validate the token.
-        // If the refresh token is also expired, this will fail and we redirect to login.
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+        // Step 2: Fetch profile AND refresh session IN PARALLEL
+        const userId = currentSession.user.id
+        const [profileResult, refreshResult] = await Promise.all([
+          // Profile fetch with 4s timeout
+          supabase
+            .from('users')
+            .select('*')
+            .eq('id', userId)
+            .single()
+            .then(r => r.data as User | null)
+            .catch(() => null),
+          // Background session refresh (ensures JWT stays fresh)
+          supabase.auth.refreshSession()
+            .then(r => r.data?.session ?? currentSession)
+            .catch(() => currentSession),
+        ])
 
-        if (refreshError || !refreshData.session) {
-          console.warn('[Auth] Session refresh failed — forcing re-login:', refreshError?.message)
-          // Clear all stored auth data
-          try { await supabase.auth.signOut() } catch { /* ignore */ }
-          Object.keys(localStorage).filter(k =>
-            k.includes('supabase') || k.includes('sb-')
-          ).forEach(k => localStorage.removeItem(k))
+        if (!mountedRef.current) return
 
-          if (mountedRef.current) {
-            setState({ session: null, authUser: null, profile: null, loading: false })
-          }
-          return
-        }
+        // Use refreshed session if available, otherwise keep current
+        const finalSession = refreshResult || currentSession
 
-        // Session is now fresh — fetch profile
-        const session = refreshData.session
-        let profile: User | null = null
-        if (session.user) {
-          profile = await fetchProfileWithTimeout(session.user.id)
-        }
-
-        if (mountedRef.current) {
-          setState({
-            session,
-            authUser: session.user ?? null,
-            profile,
-            loading: false,
-          })
-        }
+        setState({
+          session: finalSession,
+          authUser: finalSession.user ?? null,
+          profile: profileResult,
+          loading: false,
+        })
       } catch {
         if (mountedRef.current) {
-          setState((prev) => ({ ...prev, loading: false }))
+          // If we had a cached session, keep showing the app (don't flash to login)
+          setState(prev => ({ ...prev, loading: false }))
         }
       }
     }
 
     init()
 
-    // Listen for auth changes
+    // Listen for auth changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        let profile: User | null = null
-        if (session?.user) {
-          profile = await fetchProfileWithTimeout(session.user.id)
+      async (event, session) => {
+        if (!mountedRef.current) return
+
+        // For SIGNED_OUT, clear immediately (don't wait for profile fetch)
+        if (!session) {
+          setState({ session: null, authUser: null, profile: null, loading: false })
+          return
         }
+
+        // For TOKEN_REFRESHED, just update session (profile doesn't change)
+        if (event === 'TOKEN_REFRESHED') {
+          setState(prev => ({
+            ...prev,
+            session,
+            authUser: session.user ?? null,
+          }))
+          return
+        }
+
+        // For SIGNED_IN, fetch profile
+        let profile: User | null = null
+        try {
+          const { data } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .single()
+          profile = data as User | null
+        } catch { /* ignore */ }
 
         if (mountedRef.current) {
           setState({
             session,
-            authUser: session?.user ?? null,
+            authUser: session.user ?? null,
             profile,
             loading: false,
           })
@@ -125,7 +142,7 @@ export function useAuth() {
       mountedRef.current = false
       subscription.unsubscribe()
     }
-  }, []) // No dependencies — runs once
+  }, [])
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })

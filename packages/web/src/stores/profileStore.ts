@@ -14,6 +14,7 @@ interface ProfileStore {
   profiles: Profile[]
   activeProfileId: string | null
   setActiveProfile: (id: string | null) => void
+  setProfiles: (profiles: Profile[]) => void
   addProfile: (profile: Profile) => void
   updateProfile: (id: string, data: Partial<Omit<Profile, 'id'>>) => void
   removeProfile: (id: string) => void
@@ -27,6 +28,8 @@ export const useProfileStore = create<ProfileStore>()(
       activeProfileId: null,
 
       setActiveProfile: (id) => set({ activeProfileId: id }),
+
+      setProfiles: (profiles) => set({ profiles }),
 
       addProfile: (profile) =>
         set((state) => ({ profiles: [...state.profiles, profile] })),

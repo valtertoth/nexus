@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
@@ -13,19 +13,24 @@ export function MainLayout() {
 
   const conversations = useConversationStore((s) => s.conversations)
 
-  // Request notification permission on app load
+  // Request notification permission AFTER app is interactive (deferred)
   useEffect(() => {
-    requestNotificationPermission()
+    const timer = setTimeout(() => {
+      requestNotificationPermission()
+    }, 3000)
+    return () => clearTimeout(timer)
   }, [])
+
+  // Memoize unread count to avoid recalculating on every render
+  const totalUnread = useMemo(
+    () => conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0),
+    [conversations]
+  )
 
   // Update tab title with unread count
   useEffect(() => {
-    const totalUnread = conversations.reduce(
-      (sum, c) => sum + (c.unread_count || 0),
-      0
-    )
     document.title = totalUnread > 0 ? `(${totalUnread}) Nexus` : 'Nexus'
-  }, [conversations])
+  }, [totalUnread])
 
   return (
     <PresenceProvider>

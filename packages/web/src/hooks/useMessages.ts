@@ -223,7 +223,7 @@ export function useMessages(conversationId: string | null) {
             wasDisconnected = true
 
             if (retryCount < MAX_RETRIES && mounted) {
-              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000)
+              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000) + Math.random() * 1000
               retryCount++
               console.log(`[Messages] Retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`)
               retryTimeout = setTimeout(subscribe, delay)
@@ -233,7 +233,7 @@ export function useMessages(conversationId: string | null) {
           if (status === 'CLOSED' && mounted) {
             wasDisconnected = true
             if (retryCount < MAX_RETRIES) {
-              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000)
+              const delay = Math.min(1000 * Math.pow(2, retryCount), 30000) + Math.random() * 1000
               retryCount++
               retryTimeout = setTimeout(subscribe, delay)
             }
