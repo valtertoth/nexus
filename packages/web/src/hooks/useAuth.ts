@@ -46,20 +46,49 @@ export function useAuth() {
   useEffect(() => {
     mountedRef.current = true
 
-    // Get initial session
+    // Get initial session — always validate + refresh to prevent stale JWT
     async function init() {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session: cachedSession } } = await supabase.auth.getSession()
 
+        if (!cachedSession) {
+          // No session at all — not authenticated
+          if (mountedRef.current) {
+            setState({ session: null, authUser: null, profile: null, loading: false })
+          }
+          return
+        }
+
+        // Always try to refresh the session to ensure the JWT is valid.
+        // getSession() only reads localStorage — it does NOT validate the token.
+        // If the refresh token is also expired, this will fail and we redirect to login.
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+
+        if (refreshError || !refreshData.session) {
+          console.warn('[Auth] Session refresh failed — forcing re-login:', refreshError?.message)
+          // Clear all stored auth data
+          try { await supabase.auth.signOut() } catch { /* ignore */ }
+          Object.keys(localStorage).filter(k =>
+            k.includes('supabase') || k.includes('sb-')
+          ).forEach(k => localStorage.removeItem(k))
+
+          if (mountedRef.current) {
+            setState({ session: null, authUser: null, profile: null, loading: false })
+          }
+          return
+        }
+
+        // Session is now fresh — fetch profile
+        const session = refreshData.session
         let profile: User | null = null
-        if (session?.user) {
+        if (session.user) {
           profile = await fetchProfileWithTimeout(session.user.id)
         }
 
         if (mountedRef.current) {
           setState({
             session,
-            authUser: session?.user ?? null,
+            authUser: session.user ?? null,
             profile,
             loading: false,
           })

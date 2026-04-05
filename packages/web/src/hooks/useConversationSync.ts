@@ -81,21 +81,6 @@ export function useConversationSync() {
         } else if (data && mountedRef.current) {
           storeRef.current.setConversations(data as ConversationWithRelations[])
           storeRef.current.setHasMore(data.length === PAGE_SIZE)
-
-          // If we're authenticated but got 0 results, session is almost certainly stale
-          if (data.length === 0) {
-            console.warn('[ConversationSync] 0 conversations — session is stale, forcing re-login')
-            // Clear ALL stored auth data and redirect to login
-            try {
-              await supabase.auth.signOut()
-            } catch { /* ignore */ }
-            // Force-clear localStorage auth keys
-            Object.keys(localStorage).filter(k =>
-              k.includes('supabase') || k.includes('sb-') || k.includes('nexus')
-            ).forEach(k => localStorage.removeItem(k))
-            window.location.href = '/login'
-            return
-          }
         }
       } catch (err) {
         console.error('[ConversationSync] Fetch exception:', err)
