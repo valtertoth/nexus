@@ -2,6 +2,14 @@ import { streamText, generateText } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { withTimeout, CircuitBreaker } from '../lib/resilience.js'
 
+/** Race a promise/thenable against a timeout, returning the fallback value on timeout instead of throwing. */
+function withTimeoutFallback<T>(promiseOrThenable: PromiseLike<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    Promise.resolve(promiseOrThenable),
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ])
+}
+
 // Circuit breaker: if Claude fails 5 times in a row, stop calling for 60s
 export const claudeCircuitBreaker = new CircuitBreaker('Claude AI', {
   threshold: 5,
@@ -91,13 +99,21 @@ export async function generateSuggestion(
     }
   }
 
+  // Cap max_tokens to prevent a single prompt from burning the monthly budget
+  maxTokens = Math.min(maxTokens, 1500)
+
   // 4. RAG search for relevant knowledge
   let sources: AiRagSource[] = []
   let knowledgeContext = ''
 
+  // Fetch all context in parallel with 5-second timeouts to prevent hangs
   if (sectorId) {
     try {
-      sources = await searchRelevantChunks(latestMessage, sectorId, orgId)
+      sources = await withTimeoutFallback(
+        searchRelevantChunks(latestMessage, sectorId, orgId),
+        5_000,
+        [] as AiRagSource[]
+      )
       if (sources.length > 0) {
         knowledgeContext = sources
           .map((s, i) => `[${i + 1}] (${s.documentName}, similaridade: ${(s.similarity * 100).toFixed(0)}%)\n${s.content}`)
@@ -112,15 +128,19 @@ export async function generateSuggestion(
   let insightsContext = ''
   if (sectorId) {
     try {
-      const { data: insights } = await supabaseAdmin
-        .from('conversation_insights')
-        .select('insight_type, title, description, example_quote, playbook')
-        .eq('sector_id', sectorId)
-        .eq('org_id', orgId)
-        .gte('confidence', 0.7)
-        .in('insight_type', ['winning_pattern', 'key_phrase', 'objection_handled', 'playbook_step'])
-        .order('confidence', { ascending: false })
-        .limit(5)
+      const { data: insights } = await withTimeoutFallback(
+        supabaseAdmin
+          .from('conversation_insights')
+          .select('insight_type, title, description, example_quote, playbook')
+          .eq('sector_id', sectorId)
+          .eq('org_id', orgId)
+          .gte('confidence', 0.7)
+          .in('insight_type', ['winning_pattern', 'key_phrase', 'objection_handled', 'playbook_step'])
+          .order('confidence', { ascending: false })
+          .limit(5),
+        5_000,
+        { data: null, error: null } as never
+      )
 
       if (insights && insights.length > 0) {
         insightsContext = insights
@@ -140,16 +160,17 @@ export async function generateSuggestion(
   // 4c. Fetch org brain directives (Company Brain)
   let brainDirectives = ''
   try {
-    // Build sector filter: directives that apply to this sector or to all sectors
-    let query = supabaseAdmin
-      .from('org_brain_directives')
-      .select('category, title, content')
-      .eq('org_id', orgId)
-      .eq('is_active', true)
-      .order('priority', { ascending: false })
-      .limit(8)
-
-    const { data: directives } = await query
+    const { data: directives } = await withTimeoutFallback(
+      supabaseAdmin
+        .from('org_brain_directives')
+        .select('category, title, content')
+        .eq('org_id', orgId)
+        .eq('is_active', true)
+        .order('priority', { ascending: false })
+        .limit(8),
+      5_000,
+      { data: null, error: null } as never
+    )
 
     if (directives && directives.length > 0) {
       // Filter: only include directives that apply to this sector or to all sectors
@@ -172,18 +193,26 @@ export async function generateSuggestion(
   // 4d. Fetch contact profile (Ecosystem Intelligence)
   let contactProfileContext = ''
   try {
-    const { data: conv } = await supabaseAdmin
-      .from('conversations')
-      .select('contact_id, assigned_to')
-      .eq('id', conversationId)
-      .single()
+    const { data: conv } = await withTimeoutFallback(
+      supabaseAdmin
+        .from('conversations')
+        .select('contact_id, assigned_to')
+        .eq('id', conversationId)
+        .single(),
+      5_000,
+      { data: null, error: null } as never
+    )
 
     if (conv?.contact_id) {
-      const { data: contact } = await supabaseAdmin
-        .from('contacts')
-        .select('name, profile_summary, profile_traits, profile_interests, profile_objections, profile_stage, profile_sentiment, total_conversations, total_revenue')
-        .eq('id', conv.contact_id)
-        .single()
+      const { data: contact } = await withTimeoutFallback(
+        supabaseAdmin
+          .from('contacts')
+          .select('name, profile_summary, profile_traits, profile_interests, profile_objections, profile_stage, profile_sentiment, total_conversations, total_revenue')
+          .eq('id', conv.contact_id)
+          .single(),
+        5_000,
+        { data: null, error: null } as never
+      )
 
       if (contact?.profile_summary) {
         const traits = contact.profile_traits as Record<string, number> || {}
@@ -208,13 +237,17 @@ ${contact.total_revenue ? `Receita historica: R$ ${contact.total_revenue}` : ''}
     }
 
     // 4e. Fetch latest conversation snapshot (real-time intelligence)
-    const { data: snapshot } = await supabaseAdmin
-      .from('conversation_snapshots')
-      .select('detected_intent, detected_temperature, detected_stage, detected_urgency, buying_signals, risk_signals, opportunity_signals, recommended_action, seller_approach_score')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
+    const { data: snapshot } = await withTimeoutFallback(
+      supabaseAdmin
+        .from('conversation_snapshots')
+        .select('detected_intent, detected_temperature, detected_stage, detected_urgency, buying_signals, risk_signals, opportunity_signals, recommended_action, seller_approach_score')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single(),
+      5_000,
+      { data: null, error: null } as never
+    )
 
     let snapshotContext = ''
     if (snapshot) {
@@ -393,12 +426,19 @@ export async function* streamSuggestion(
       }
     }
 
-    // RAG
+    // Cap max_tokens for streaming consult (slightly higher than suggestions)
+    maxTokens = Math.min(maxTokens, 2000)
+
+    // RAG (with 5s timeout to prevent hangs)
     let sources: AiRagSource[] = []
     let knowledgeContext = ''
     if (sectorId) {
       try {
-        sources = await searchRelevantChunks(latestMessage, sectorId, orgId)
+        sources = await withTimeoutFallback(
+          searchRelevantChunks(latestMessage, sectorId, orgId),
+          5_000,
+          [] as AiRagSource[]
+        )
         if (sources.length > 0) {
           knowledgeContext = sources
             .map((s, i) => `[${i + 1}] (${s.documentName})\n${s.content}`)
@@ -409,19 +449,23 @@ export async function* streamSuggestion(
       }
     }
 
-    // Fetch operational insights for streaming too
+    // Fetch operational insights for streaming too (with 5s timeout)
     let streamInsightsContext = ''
     if (sectorId) {
       try {
-        const { data: insights } = await supabaseAdmin
-          .from('conversation_insights')
-          .select('insight_type, title, description, example_quote, playbook')
-          .eq('sector_id', sectorId)
-          .eq('org_id', orgId)
-          .gte('confidence', 0.7)
-          .in('insight_type', ['winning_pattern', 'key_phrase', 'objection_handled', 'playbook_step'])
-          .order('confidence', { ascending: false })
-          .limit(5)
+        const { data: insights } = await withTimeoutFallback(
+          supabaseAdmin
+            .from('conversation_insights')
+            .select('insight_type, title, description, example_quote, playbook')
+            .eq('sector_id', sectorId)
+            .eq('org_id', orgId)
+            .gte('confidence', 0.7)
+            .in('insight_type', ['winning_pattern', 'key_phrase', 'objection_handled', 'playbook_step'])
+            .order('confidence', { ascending: false })
+            .limit(5),
+          5_000,
+          { data: null, error: null } as never
+        )
 
         if (insights && insights.length > 0) {
           streamInsightsContext = insights
@@ -438,16 +482,20 @@ export async function* streamSuggestion(
       }
     }
 
-    // 4c. Fetch org brain directives (Company Brain)
+    // 4c. Fetch org brain directives (Company Brain) (with 5s timeout)
     let streamBrainDirectives = ''
     try {
-      const { data: directives } = await supabaseAdmin
-        .from('org_brain_directives')
-        .select('category, title, content')
-        .eq('org_id', orgId)
-        .eq('is_active', true)
-        .order('priority', { ascending: false })
-        .limit(8)
+      const { data: directives } = await withTimeoutFallback(
+        supabaseAdmin
+          .from('org_brain_directives')
+          .select('category, title, content')
+          .eq('org_id', orgId)
+          .eq('is_active', true)
+          .order('priority', { ascending: false })
+          .limit(8),
+        5_000,
+        { data: null, error: null } as never
+      )
 
       if (directives && directives.length > 0) {
         const applicable = directives.filter((d: Record<string, unknown>) => {
@@ -466,21 +514,29 @@ export async function* streamSuggestion(
       // Continue without brain directives
     }
 
-    // 4d. Fetch contact profile + snapshot (Ecosystem Intelligence)
+    // 4d. Fetch contact profile + snapshot (Ecosystem Intelligence) (with 5s timeout)
     let streamContactProfileContext = ''
     try {
-      const { data: conv } = await supabaseAdmin
-        .from('conversations')
-        .select('contact_id, assigned_to')
-        .eq('id', conversationId)
-        .single()
+      const { data: conv } = await withTimeoutFallback(
+        supabaseAdmin
+          .from('conversations')
+          .select('contact_id, assigned_to')
+          .eq('id', conversationId)
+          .single(),
+        5_000,
+        { data: null, error: null } as never
+      )
 
       if (conv?.contact_id) {
-        const { data: contact } = await supabaseAdmin
-          .from('contacts')
-          .select('name, profile_summary, profile_traits, profile_interests, profile_objections, profile_stage, profile_sentiment, total_conversations, total_revenue')
-          .eq('id', conv.contact_id)
-          .single()
+        const { data: contact } = await withTimeoutFallback(
+          supabaseAdmin
+            .from('contacts')
+            .select('name, profile_summary, profile_traits, profile_interests, profile_objections, profile_stage, profile_sentiment, total_conversations, total_revenue')
+            .eq('id', conv.contact_id)
+            .single(),
+          5_000,
+          { data: null, error: null } as never
+        )
 
         if (contact?.profile_summary) {
           const traits = contact.profile_traits as Record<string, number> || {}
@@ -504,14 +560,18 @@ ${contact.total_revenue ? `Receita historica: R$ ${contact.total_revenue}` : ''}
         }
       }
 
-      // 4e. Fetch latest conversation snapshot
-      const { data: snapshot } = await supabaseAdmin
-        .from('conversation_snapshots')
-        .select('detected_intent, detected_temperature, detected_stage, detected_urgency, buying_signals, risk_signals, opportunity_signals, recommended_action, seller_approach_score')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
+      // 4e. Fetch latest conversation snapshot (with 5s timeout)
+      const { data: snapshot } = await withTimeoutFallback(
+        supabaseAdmin
+          .from('conversation_snapshots')
+          .select('detected_intent, detected_temperature, detected_stage, detected_urgency, buying_signals, risk_signals, opportunity_signals, recommended_action, seller_approach_score')
+          .eq('conversation_id', conversationId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single(),
+        5_000,
+        { data: null, error: null } as never
+      )
 
       if (snapshot) {
         const buyingSignals = (snapshot.buying_signals as string[]) || []

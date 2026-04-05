@@ -231,6 +231,14 @@ async function getOrgCredentials(orgId: string) {
   throw new Error('WhatsApp não configurado — nenhum access token encontrado')
 }
 
+/** Invalidate cached credentials (e.g. after 401/403 from WhatsApp API) */
+function invalidateCredentialsCache(orgId: string): void {
+  if (credentialsCache && credentialsCache.orgId === orgId) {
+    console.warn(`[WhatsApp] Invalidating credential cache for org=${orgId} due to auth error`)
+    credentialsCache = null
+  }
+}
+
 export async function sendTextMessage(
   orgId: string,
   to: string,
@@ -267,6 +275,10 @@ export async function sendTextMessage(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
+    // Invalidate cached credentials on auth errors so next call fetches fresh ones
+    if (response.status === 401 || response.status === 403) {
+      invalidateCredentialsCache(orgId)
+    }
     // Respect Meta's rate limit headers — wait before retry
     if (response.status === 429) {
       const retryAfter = response.headers.get('retry-after')
@@ -322,10 +334,15 @@ export async function getMediaUrl(
     try {
       const response = await fetch(`${GRAPH_API_URL}/${mediaId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(8_000),
       })
 
       if (!response.ok) {
+        // Invalidate cached credentials on auth errors
+        if (response.status === 401 || response.status === 403) {
+          // getMediaUrl uses a direct token, but clear org cache as a safety measure
+          credentialsCache = null
+        }
         throw new Error(`Failed to get media URL for ${mediaId}: ${response.status}`)
       }
 
@@ -387,6 +404,10 @@ export async function sendMediaMessage(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
+    // Invalidate cached credentials on auth errors so next call fetches fresh ones
+    if (response.status === 401 || response.status === 403) {
+      invalidateCredentialsCache(orgId)
+    }
     console.error(`[WhatsApp] send ${mediaType} failed — to=${to}, orgId=${orgId}, error=${JSON.stringify(error)}`)
     throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`)
   }

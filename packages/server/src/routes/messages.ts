@@ -60,11 +60,14 @@ messages.post('/send', userApiRateLimit, async (c) => {
     .from('conversations')
     .select('id, org_id, contact_id, contacts(wa_id, wa_jid)')
     .eq('id', conversationId)
-    .eq('org_id', orgId)
     .single()
 
   if (convError || !conversation) {
     return c.json({ error: 'Conversa não encontrada' }, 404)
+  }
+
+  if (conversation.org_id !== orgId) {
+    return c.json({ error: 'Acesso negado a esta conversa' }, 403)
   }
 
   // Supabase returns related record as object (many-to-one), not array
@@ -251,11 +254,14 @@ messages.post('/send-media', userApiRateLimit, async (c) => {
     .from('conversations')
     .select('id, org_id, contact_id, contacts(wa_id, wa_jid)')
     .eq('id', conversationId)
-    .eq('org_id', orgId)
     .single()
 
   if (convError || !conversation) {
     return c.json({ error: 'Conversa não encontrada' }, 404)
+  }
+
+  if (conversation.org_id !== orgId) {
+    return c.json({ error: 'Acesso negado a esta conversa' }, 403)
   }
 
   const contactRaw = (conversation as Record<string, unknown>).contacts as
@@ -388,11 +394,14 @@ messages.post('/send-media-url', userApiRateLimit, async (c) => {
     .from('conversations')
     .select('id, org_id, contact_id, contacts(wa_id)')
     .eq('id', conversationId)
-    .eq('org_id', orgId)
     .single()
 
   if (convError || !conversation) {
     return c.json({ error: 'Conversa não encontrada' }, 404)
+  }
+
+  if (conversation.org_id !== orgId) {
+    return c.json({ error: 'Acesso negado a esta conversa' }, 403)
   }
 
   const contactRaw = (conversation as Record<string, unknown>).contacts as

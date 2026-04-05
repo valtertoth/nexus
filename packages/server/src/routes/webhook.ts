@@ -298,7 +298,7 @@ async function processIncomingMessage(
       mediaData = await withRetry(
         () => withTimeout(
           downloadAndStore(msg.mediaId!, accessToken, orgId, conversation.id),
-          30_000,
+          10_000,
           `media download ${msg.mediaId}`
         ),
         `media download ${msg.mediaId}`,

@@ -56,6 +56,34 @@ try {
   // Non-critical — use default version
 }
 
+// --- Request Timeout Middleware ---
+// 45s default, 60s for webhook and media upload routes
+app.use('*', async (c, next) => {
+  const isLongRunning =
+    c.req.path.startsWith('/webhook') ||
+    c.req.path.startsWith('/api/webhooks') ||
+    c.req.path.startsWith('/api/messages/send-media')
+  const timeoutMs = isLongRunning ? 60_000 : 45_000
+
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+  }, timeoutMs)
+
+  try {
+    await next()
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (timedOut && !c.res.headers.get('content-type')?.includes('text/event-stream')) {
+    // Response took too long — override with 408 if headers not yet committed
+    // Hono commits headers when we return, so we can still replace the response
+    c.res = c.json({ error: 'Request timeout' }, 408) as unknown as Response
+    console.warn(`[Server] Request timeout (${timeoutMs}ms): ${c.req.method} ${c.req.path}`)
+  }
+})
+
 // --- Security Headers Middleware ---
 app.use('*', async (c, next) => {
   await next()
