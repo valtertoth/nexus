@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
@@ -20,7 +21,7 @@ const statusColors: Record<string, string> = {
   closed: 'bg-zinc-200',
 }
 
-export function ConversationItem({ conversation, isSelected, onSelect }: ConversationItemProps) {
+export const ConversationItem = memo(function ConversationItem({ conversation, isSelected, onSelect }: ConversationItemProps) {
   const contact = conversation.contact
   const contactName = contact?.name || contact?.wa_id || 'Desconhecido'
   const initials = getInitials(contactName)
@@ -113,4 +114,4 @@ export function ConversationItem({ conversation, isSelected, onSelect }: Convers
       </div>
     </button>
   )
-}
+})

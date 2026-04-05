@@ -67,10 +67,12 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevScrollHeightRef = useRef<number>(0)
   const prevMessageCountRef = useRef<number>(0)
+  const aiModeFetchedRef = useRef<string | null>(null)
 
-  // Load AI mode from DB on mount (always fresh, not stale profile cache)
+  // Load AI mode from DB ONCE per profile (not per conversation switch)
   useEffect(() => {
-    if (!profile?.id) return
+    if (!profile?.id || aiModeFetchedRef.current === profile.id) return
+    aiModeFetchedRef.current = profile.id
     supabase
       .from('users')
       .select('ai_mode')

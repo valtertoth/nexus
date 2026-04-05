@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, memo } from 'react'
 import { cn } from '@/lib/utils'
 import { Check, CheckCheck, Clock, AlertCircle, RefreshCw, Sparkles, FileText, Download, Play, MapPin, User, Video, X, Mic } from 'lucide-react'
 import { format } from 'date-fns'
@@ -11,7 +11,9 @@ interface MessageBubbleProps {
 
 const MEDIA_TYPES = new Set(['image', 'video', 'sticker'])
 
-export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
+// Memoize to prevent re-rendering ALL bubbles when a new message arrives.
+// Only re-renders when this specific message's props change.
+export const MessageBubble = memo(function MessageBubble({ message, onRetry }: MessageBubbleProps) {
   const isContact = message.sender_type === 'contact'
   const isSystem = message.sender_type === 'system'
   const isAiApproved = message.ai_approved === true
@@ -137,7 +139,16 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
       </div>
     </div>
   )
-}
+}, (prev, next) => {
+  // Custom comparison: only re-render when meaningful props change
+  return (
+    prev.message.id === next.message.id &&
+    prev.message.wa_status === next.message.wa_status &&
+    prev.message.content === next.message.content &&
+    prev.message.media_url === next.message.media_url &&
+    prev.message.ai_suggested_response === next.message.ai_suggested_response
+  )
+})
 
 function StatusIcon({ status }: { status?: string | null }) {
   return (
@@ -330,11 +341,13 @@ function ImageContent({ url }: { url: string }) {
 }
 
 // ─── WhatsApp-style audio player ────────────────────────────────────
-function AudioPlayer({ url, mimeType, isContact }: { url: string; mimeType?: string | null; isContact: boolean }) {
+// Memoized audio player — throttles progress updates to ~4fps instead of 60fps
+const AudioPlayer = memo(function AudioPlayer({ url, mimeType, isContact }: { url: string; mimeType?: string | null; isContact: boolean }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [duration, setDuration] = useState(0)
   const audioElRef = useRef<HTMLAudioElement | null>(null)
+  const lastProgressUpdateRef = useRef(0)
 
   const formatTime = (s: number) => {
     if (!s || !isFinite(s)) return '0:00'
@@ -413,6 +426,10 @@ function AudioPlayer({ url, mimeType, isContact }: { url: string; mimeType?: str
         preload="metadata"
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
         onTimeUpdate={(e) => {
+          // Throttle to ~4 updates/sec (250ms) instead of 60+/sec
+          const now = Date.now()
+          if (now - lastProgressUpdateRef.current < 250) return
+          lastProgressUpdateRef.current = now
           const audio = e.currentTarget
           if (audio.duration) setProgress((audio.currentTime / audio.duration) * 100)
         }}
@@ -424,7 +441,7 @@ function AudioPlayer({ url, mimeType, isContact }: { url: string; mimeType?: str
       </audio>
     </div>
   )
-}
+})
 
 // ─── Placeholders ───────────────────────────────────────────────────
 function MediaPlaceholder({ icon, label, isContact }: { icon: string; label: string; isContact: boolean }) {

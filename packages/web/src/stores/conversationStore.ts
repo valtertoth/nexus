@@ -94,16 +94,20 @@ export const useConversationStore = create<ConversationStore>((set) => ({
   setHasMore: (hasMore) => set({ hasMore }),
 
   incrementUnread: (id) =>
-    set((s) => ({
-      conversations: s.conversations.map((c) =>
-        c.id === id ? { ...c, unread_count: c.unread_count + 1 } : c
-      ),
-    })),
+    set((s) => {
+      const idx = s.conversations.findIndex((c) => c.id === id)
+      if (idx === -1) return s
+      const conversations = [...s.conversations]
+      conversations[idx] = { ...conversations[idx], unread_count: conversations[idx].unread_count + 1 }
+      return { conversations }
+    }),
 
   resetUnread: (id) =>
-    set((s) => ({
-      conversations: s.conversations.map((c) =>
-        c.id === id ? { ...c, unread_count: 0 } : c
-      ),
-    })),
+    set((s) => {
+      const idx = s.conversations.findIndex((c) => c.id === id)
+      if (idx === -1 || s.conversations[idx].unread_count === 0) return s // Skip if already 0
+      const conversations = [...s.conversations]
+      conversations[idx] = { ...conversations[idx], unread_count: 0 }
+      return { conversations }
+    }),
 }))
