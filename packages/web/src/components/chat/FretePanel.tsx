@@ -396,6 +396,20 @@ export function FretePanel({ onInsertInChat, embedded }: FretePanelProps) {
     })
   }, [params, fretePesoValores, m3, valorMercadoria, selectedCidade, incluirEntrega, selectedTransportadora])
 
+  // ── Auto-select when only 1 transportadora ──
+  useEffect(() => {
+    if (transportadoras.length === 1 && !transportadoraId) {
+      setTransportadoraId(transportadoras[0].id)
+    }
+  }, [transportadoras, transportadoraId])
+
+  // ── Auto-select when only 1 origem ──
+  useEffect(() => {
+    if (origens.length === 1 && !origemCodigo) {
+      setOrigemCodigo(origens[0].codigo)
+    }
+  }, [origens, origemCodigo])
+
   // ── Reset dependent fields on transportadora change ──
   useEffect(() => {
     setOrigemCodigo('')
@@ -471,7 +485,9 @@ export function FretePanel({ onInsertInChat, embedded }: FretePanelProps) {
           ) : (
             <Select value={transportadoraId} onValueChange={(v) => { if (v) setTransportadoraId(v) }}>
               <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Selecione a transportadora" />
+                <SelectValue placeholder="Selecione a transportadora">
+                  {selectedTransportadora?.nome ?? 'Selecione a transportadora'}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {transportadoras.map((t: Transportadora) => (
@@ -490,7 +506,9 @@ export function FretePanel({ onInsertInChat, embedded }: FretePanelProps) {
             <Label className="text-xs text-zinc-600">Origem</Label>
             <Select value={origemCodigo} onValueChange={(v) => { if (v) setOrigemCodigo(v) }}>
               <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Selecione a origem" />
+                <SelectValue placeholder="Selecione a origem">
+                  {selectedOrigem ? `${selectedOrigem.nome} (${selectedOrigem.codigo})` : 'Selecione a origem'}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {origens.map((o: TransportadoraOrigem) => (
