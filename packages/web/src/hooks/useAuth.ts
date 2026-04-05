@@ -60,13 +60,14 @@ export function useAuth() {
         // Step 2: Fetch profile AND refresh session IN PARALLEL
         const userId = currentSession.user.id
         const [profileResult, refreshResult] = await Promise.all([
-          // Profile fetch with 4s timeout
-          supabase
-            .from('users')
-            .select('*')
-            .eq('id', userId)
-            .single()
-            .then(r => r.data as User | null)
+          // Profile fetch
+          Promise.resolve(
+            supabase
+              .from('users')
+              .select('*')
+              .eq('id', userId)
+              .single()
+          ).then(r => r.data as User | null)
             .catch(() => null),
           // Background session refresh (ensures JWT stays fresh)
           supabase.auth.refreshSession()
