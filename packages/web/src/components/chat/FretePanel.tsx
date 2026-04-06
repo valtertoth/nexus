@@ -11,9 +11,8 @@ import type {
   DimensoesInput,
 } from '@/types/frete'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -21,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 import {
   Truck,
   Ruler,
@@ -31,6 +29,11 @@ import {
   ChevronUp,
   Search,
   Loader2,
+  MapPin,
+  Package,
+  CircleDollarSign,
+  Check,
+  RotateCcw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -45,7 +48,7 @@ function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`
 }
 
-// ── Data hooks (plain useState/useEffect — no react-query) ─────────────────
+// ── Data hooks (plain useState/useEffect) ─────────────────────────────────
 
 function useTransportadoras() {
   const [data, setData] = useState<Transportadora[]>([])
@@ -159,7 +162,31 @@ function resolveOriginParams(
   return { ...base, ...origem.parametros_override }
 }
 
-// ── Dimensions Calculator (inline) ─────────────────────────────────────────
+// ── Field wrapper ──────────────────────────────────────────────────────────
+
+function Field({
+  label,
+  icon: Icon,
+  children,
+  className,
+}: {
+  label: string
+  icon?: React.ComponentType<{ className?: string }>
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div className={cn('space-y-1.5', className)}>
+      <div className="flex items-center gap-1.5">
+        {Icon && <Icon className="w-3.5 h-3.5 text-zinc-400" />}
+        <span className="text-xs font-medium text-zinc-500">{label}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// ── Dimensions Calculator ─────────────────────────────────────────────────
 
 function DimensoesCalculator({ onCalculate }: { onCalculate: (m3: number) => void }) {
   const [dims, setDims] = useState<DimensoesInput>({
@@ -177,146 +204,146 @@ function DimensoesCalculator({ onCalculate }: { onCalculate: (m3: number) => voi
   }
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-      <div className="mb-2 flex items-center gap-1.5">
-        <Ruler className="size-3.5 text-zinc-500" strokeWidth={1.5} />
-        <span className="text-xs font-medium text-zinc-600">Calcular M3 por dimensoes</span>
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-3 space-y-3">
+      <div className="grid grid-cols-4 gap-1.5">
+        {[
+          { key: 'comprimento' as const, label: 'C (cm)', val: dims.comprimento },
+          { key: 'largura' as const, label: 'L (cm)', val: dims.largura },
+          { key: 'altura' as const, label: 'A (cm)', val: dims.altura },
+          { key: 'quantidade' as const, label: 'Qtd', val: dims.quantidade },
+        ].map(({ key, label, val }) => (
+          <div key={key}>
+            <span className="text-[10px] text-zinc-400 mb-0.5 block">{label}</span>
+            <Input
+              type="number"
+              min={key === 'quantidade' ? 1 : 0}
+              value={val || ''}
+              onChange={(e) => handleChange(key, e.target.value)}
+              placeholder="0"
+              className="h-7 text-xs px-2"
+            />
+          </div>
+        ))}
       </div>
-      <div className="grid grid-cols-4 gap-2">
-        <div className="space-y-0.5">
-          <Label className="text-[10px] text-zinc-400">Comp. (cm)</Label>
-          <Input
-            type="number"
-            min={0}
-            value={dims.comprimento || ''}
-            onChange={(e) => handleChange('comprimento', e.target.value)}
-            placeholder="0"
-            className="h-7 text-xs"
-          />
-        </div>
-        <div className="space-y-0.5">
-          <Label className="text-[10px] text-zinc-400">Larg. (cm)</Label>
-          <Input
-            type="number"
-            min={0}
-            value={dims.largura || ''}
-            onChange={(e) => handleChange('largura', e.target.value)}
-            placeholder="0"
-            className="h-7 text-xs"
-          />
-        </div>
-        <div className="space-y-0.5">
-          <Label className="text-[10px] text-zinc-400">Alt. (cm)</Label>
-          <Input
-            type="number"
-            min={0}
-            value={dims.altura || ''}
-            onChange={(e) => handleChange('altura', e.target.value)}
-            placeholder="0"
-            className="h-7 text-xs"
-          />
-        </div>
-        <div className="space-y-0.5">
-          <Label className="text-[10px] text-zinc-400">Qtd.</Label>
-          <Input
-            type="number"
-            min={1}
-            value={dims.quantidade || ''}
-            onChange={(e) => handleChange('quantidade', e.target.value)}
-            placeholder="1"
-            className="h-7 text-xs"
-          />
-        </div>
-      </div>
-      <div className="mt-2 flex items-center justify-between">
+      <div className="flex items-center justify-between">
         <span className="text-xs text-zinc-500">
-          Volume: <span className="font-medium text-zinc-800">{m3.toFixed(4)} m3</span>
+          = <span className="font-semibold text-zinc-900">{m3.toFixed(4)} m3</span>
         </span>
         <Button
           size="sm"
           variant="outline"
           disabled={m3 <= 0}
           onClick={() => onCalculate(m3)}
-          className="h-6 text-[10px] px-2"
+          className="h-6 text-[10px] px-2.5 gap-1"
         >
-          Usar este M3
+          <Check className="w-3 h-3" />
+          Usar
         </Button>
       </div>
     </div>
   )
 }
 
-// ── Result Card (inline) ───────────────────────────────────────────────────
+// ── Result breakdown ──────────────────────────────────────────────────────
 
-function FreteResultCard({ result }: { result: FreteResult }) {
-  const lines = [
+function FreteResultCard({
+  result,
+  transportadoraNome,
+}: {
+  result: FreteResult
+  transportadoraNome: string
+}) {
+  const items = [
     { label: 'Frete Peso', value: result.fretePeso },
     { label: 'Despacho', value: result.despacho },
     { label: `GRIS (${formatPercent(result.detalhes.grisPct)})`, value: result.gris },
     { label: 'Pedagio', value: result.pedagio },
   ]
-  if (result.advalorem > 0) lines.push({ label: 'Ad-Valorem', value: result.advalorem })
-  if (result.txDifAcesso > 0) lines.push({ label: `TxDifAcesso (${formatPercent(result.detalhes.txDifPct)})`, value: result.txDifAcesso })
-  if (result.entrega > 0) lines.push({ label: 'Entrega', value: result.entrega })
+  if (result.advalorem > 0)
+    items.push({ label: 'Ad Valorem', value: result.advalorem })
+  if (result.txDifAcesso > 0)
+    items.push({ label: `Tx Dif. (${formatPercent(result.detalhes.txDifPct)})`, value: result.txDifAcesso })
+  if (result.entrega > 0)
+    items.push({ label: 'Entrega', value: result.entrega })
+
+  const finalValue = result.margem > 0 ? result.totalComMargem : result.total
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white">
-      <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
-        <h3 className="text-xs font-medium text-zinc-900">Resultado do Frete</h3>
-        <div className="flex items-center gap-1.5">
-          <span className="rounded-md border border-zinc-200 px-1.5 py-0.5 text-[10px] text-zinc-600">
+    <div className="space-y-3">
+      {/* Total highlight */}
+      <div className="rounded-xl bg-zinc-900 px-4 py-4 text-white">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[11px] text-zinc-400 uppercase tracking-wider">
+            {result.margem > 0 ? 'Total c/ margem' : 'Total do frete'}
+          </span>
+          <span className="text-[10px] text-zinc-500">{transportadoraNome}</span>
+        </div>
+        <div className="text-2xl font-semibold tracking-tight">
+          {formatCurrency(finalValue)}
+        </div>
+        <div className="flex items-center gap-2 mt-2">
+          <span className="inline-flex items-center rounded-md bg-white/10 px-2 py-0.5 text-[10px] text-zinc-300">
             {result.detalhes.faixaLabel}
           </span>
-          <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700">
+          <span className="inline-flex items-center rounded-md bg-white/10 px-2 py-0.5 text-[10px] text-zinc-300">
             {result.detalhes.praca}
+          </span>
+          <span className="inline-flex items-center rounded-md bg-white/10 px-2 py-0.5 text-[10px] text-zinc-300">
+            {result.detalhes.m3.toFixed(2)} m3
           </span>
         </div>
       </div>
 
-      <div className="px-4 py-3 space-y-0">
-        {lines.map((line) => (
-          <div key={line.label} className="flex items-center justify-between py-1">
-            <span className="text-[11px] text-zinc-500">{line.label}</span>
-            <span className="text-xs text-zinc-700">{formatCurrency(line.value)}</span>
+      {/* Breakdown */}
+      <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+        {/* Line items */}
+        <div className="px-3 py-2 space-y-0.5">
+          {items.map((item) => (
+            <div key={item.label} className="flex items-center justify-between py-0.5">
+              <span className="text-[11px] text-zinc-500">{item.label}</span>
+              <span className="text-[11px] font-medium text-zinc-700 tabular-nums">
+                {formatCurrency(item.value)}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Subtotal + ICMS */}
+        <div className="px-3 py-2 space-y-0.5">
+          <div className="flex items-center justify-between py-0.5">
+            <span className="text-[11px] text-zinc-500">Subtotal</span>
+            <span className="text-[11px] font-medium text-zinc-700 tabular-nums">
+              {formatCurrency(result.subtotal)}
+            </span>
           </div>
-        ))}
-
-        <Separator className="my-1.5 bg-zinc-100" />
-
-        <div className="flex items-center justify-between py-1">
-          <span className="text-[11px] text-zinc-500">Subtotal</span>
-          <span className="text-xs text-zinc-700">{formatCurrency(result.subtotal)}</span>
-        </div>
-        <div className="flex items-center justify-between py-1">
-          <span className="text-[11px] text-zinc-500">ICMS ({formatPercent(result.detalhes.icmsPct)})</span>
-          <span className="text-xs text-zinc-700">{formatCurrency(result.icms)}</span>
+          <div className="flex items-center justify-between py-0.5">
+            <span className="text-[11px] text-zinc-500">
+              ICMS ({formatPercent(result.detalhes.icmsPct)})
+            </span>
+            <span className="text-[11px] font-medium text-zinc-700 tabular-nums">
+              {formatCurrency(result.icms)}
+            </span>
+          </div>
         </div>
 
-        <Separator className="my-1.5 bg-zinc-100" />
-
-        <div className="flex items-center justify-between py-1.5">
-          <span className="text-xs font-medium text-zinc-900">Total</span>
-          <span className="text-sm font-medium text-zinc-900">{formatCurrency(result.total)}</span>
-        </div>
-
-        {result.margem > 0 && (
-          <>
-            <div className="flex items-center justify-between py-1">
-              <span className="text-[11px] text-zinc-500">Margem de Seguranca</span>
-              <span className="text-xs text-zinc-700">{formatCurrency(result.margem)}</span>
+        {/* Total */}
+        <div className="px-3 py-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-zinc-900">Total</span>
+            <span className="text-xs font-semibold text-zinc-900 tabular-nums">
+              {formatCurrency(result.total)}
+            </span>
+          </div>
+          {result.margem > 0 && (
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-[11px] text-zinc-500">
+                + Margem ({formatPercent(result.detalhes.m3 > 0 ? result.margem / result.total : 0)})
+              </span>
+              <span className="text-[11px] font-medium text-zinc-700 tabular-nums">
+                {formatCurrency(result.margem)}
+              </span>
             </div>
-            <div className="flex items-center justify-between rounded-md bg-zinc-50 px-2 py-1.5">
-              <span className="text-xs font-medium text-zinc-900">Total com Margem</span>
-              <span className="text-sm font-medium text-zinc-900">{formatCurrency(result.totalComMargem)}</span>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="border-t border-zinc-100 px-4 py-2">
-        <div className="flex items-center gap-3 text-[10px] text-zinc-400">
-          <span>Estado: {result.detalhes.estado}</span>
-          <span>M3: {result.detalhes.m3.toFixed(4)}</span>
+          )}
         </div>
       </div>
     </div>
@@ -420,8 +447,17 @@ export function FretePanel({ onInsertInChat, embedded }: FretePanelProps) {
   // ── Handlers ──
   const handleCidadeSelect = useCallback((cidade: CidadePraca) => {
     setSelectedCidade(cidade)
-    setCidadeSearch(`${cidade.cidade}${cidade.estado ? ` - ${cidade.estado}` : ''}`)
+    setCidadeSearch(cidade.cidade)
     setShowCidadeDropdown(false)
+  }, [])
+
+  const handleReset = useCallback(() => {
+    setCidadeSearch('')
+    setSelectedCidade(null)
+    setM3(0)
+    setValorMercadoria(0)
+    setIncluirEntrega(false)
+    setShowDimensoes(false)
   }, [])
 
   const formatResultText = useCallback((r: FreteResult): string => {
@@ -460,211 +496,268 @@ export function FretePanel({ onInsertInChat, embedded }: FretePanelProps) {
   const handleCopy = useCallback(() => {
     if (!result) return
     navigator.clipboard.writeText(formatResultText(result))
-    toast.success('Copiado')
+    toast.success('Copiado para a area de transferencia')
   }, [result, formatResultText])
+
+  // ── Progress indicator ──
+  const step = !transportadoraId ? 0 : !origemCodigo ? 1 : !selectedCidade ? 2 : !result ? 3 : 4
 
   return (
     <div className={cn('flex flex-col h-full', !embedded && 'bg-white')}>
-      {/* Header (only when not embedded) */}
-      {!embedded && (
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-200">
-          <Truck className="w-4 h-4 text-zinc-600" />
-          <h2 className="text-sm font-medium text-zinc-900">Calculadora de Frete</h2>
-        </div>
-      )}
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Route config section */}
+        <div className="px-4 pt-4 pb-3 space-y-3">
+          {/* Section header with step dots */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Truck className="w-3.5 h-3.5 text-zinc-400" />
+              <span className="text-xs font-medium text-zinc-500">Rota</span>
+            </div>
+            <div className="flex items-center gap-1">
+              {[0, 1, 2, 3].map((s) => (
+                <div
+                  key={s}
+                  className={cn(
+                    'w-1.5 h-1.5 rounded-full transition-colors duration-200',
+                    s < step ? 'bg-zinc-900' : s === step ? 'bg-zinc-400' : 'bg-zinc-200'
+                  )}
+                />
+              ))}
+            </div>
+          </div>
 
-      {/* Scrollable form */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {/* Transportadora */}
-        <div className="space-y-1.5">
-          <Label className="text-xs text-zinc-600">Transportadora</Label>
+          {/* Transportadora + Origem in compact layout */}
           {loadingTransp ? (
-            <div className="flex items-center gap-2 text-xs text-zinc-400 py-2">
-              <Loader2 className="w-3 h-3 animate-spin" /> Carregando...
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
             </div>
           ) : (
-            <Select value={transportadoraId} onValueChange={(v) => { if (v) setTransportadoraId(v) }}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Selecione a transportadora">
-                  {selectedTransportadora?.nome ?? 'Selecione a transportadora'}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {transportadoras.map((t: Transportadora) => (
-                  <SelectItem key={t.id} value={t.id} className="text-xs">
-                    {t.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="space-y-2">
+              <Select value={transportadoraId} onValueChange={(v) => { if (v) setTransportadoraId(v) }}>
+                <SelectTrigger className="h-9 text-xs w-full">
+                  <SelectValue placeholder="Transportadora">
+                    {selectedTransportadora?.nome ?? 'Transportadora'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {transportadoras.map((t: Transportadora) => (
+                    <SelectItem key={t.id} value={t.id} className="text-xs">
+                      {t.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {transportadoraId && (
+                <Select value={origemCodigo} onValueChange={(v) => { if (v) setOrigemCodigo(v) }}>
+                  <SelectTrigger className="h-9 text-xs w-full">
+                    <SelectValue placeholder="Origem">
+                      {selectedOrigem ? selectedOrigem.nome : 'Origem'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {origens.map((o: TransportadoraOrigem) => (
+                      <SelectItem key={o.id} value={o.codigo} className="text-xs">
+                        {o.nome}
+                        <span className="text-zinc-400 ml-1">({o.codigo})</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Origem */}
-        {transportadoraId && (
-          <div className="space-y-1.5">
-            <Label className="text-xs text-zinc-600">Origem</Label>
-            <Select value={origemCodigo} onValueChange={(v) => { if (v) setOrigemCodigo(v) }}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Selecione a origem">
-                  {selectedOrigem ? `${selectedOrigem.nome} (${selectedOrigem.codigo})` : 'Selecione a origem'}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {origens.map((o: TransportadoraOrigem) => (
-                  <SelectItem key={o.id} value={o.codigo} className="text-xs">
-                    {o.nome} ({o.codigo})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        {/* Divider */}
+        {origemCodigo && <div className="h-px bg-zinc-100 mx-4" />}
 
-        {/* Cidade destino */}
+        {/* Destination section */}
         {origemCodigo && (
-          <div className="space-y-1.5 relative">
-            <Label className="text-xs text-zinc-600">Cidade Destino</Label>
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
-              <Input
-                value={cidadeSearch}
-                onChange={(e) => {
-                  setCidadeSearch(e.target.value)
-                  setShowCidadeDropdown(true)
-                  if (selectedCidade && e.target.value !== `${selectedCidade.cidade}${selectedCidade.estado ? ` - ${selectedCidade.estado}` : ''}`) {
-                    setSelectedCidade(null)
-                  }
-                }}
-                onFocus={() => cidadeSearch.length >= 2 && setShowCidadeDropdown(true)}
-                onBlur={() => setTimeout(() => setShowCidadeDropdown(false), 200)}
-                placeholder="Digite a cidade..."
-                className="h-8 text-xs pl-7"
-              />
-              {searchingCidades && (
-                <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-zinc-400" />
-              )}
-            </div>
-
-            {/* Dropdown */}
-            {showCidadeDropdown && cidades.length > 0 && (
-              <div className="absolute z-50 w-full mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                {cidades.map((c: CidadePraca) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handleCidadeSelect(c)}
-                    className="w-full px-3 py-2 text-left hover:bg-zinc-50 transition-colors duration-150"
-                  >
-                    <span className="text-xs text-zinc-900">{c.cidade}</span>
-                    {c.estado && <span className="text-[10px] text-zinc-400 ml-1">- {c.estado}</span>}
-                    <span className="text-[10px] text-zinc-400 float-right">{c.praca}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Selected badge */}
-            {selectedCidade && (
-              <div className="flex items-center gap-1.5 mt-1">
-                <span className="inline-flex items-center rounded-md bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-700">
-                  Praca: {selectedCidade.praca}
-                </span>
-                {selectedCidade.unidade && (
-                  <span className="inline-flex items-center rounded-md bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-500">
-                    {selectedCidade.unidade}
-                  </span>
+          <div className="px-4 py-3 space-y-3">
+            <Field label="Destino" icon={MapPin}>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+                <Input
+                  value={cidadeSearch}
+                  onChange={(e) => {
+                    setCidadeSearch(e.target.value)
+                    setShowCidadeDropdown(true)
+                    if (selectedCidade && e.target.value !== selectedCidade.cidade) {
+                      setSelectedCidade(null)
+                    }
+                  }}
+                  onFocus={() => cidadeSearch.length >= 2 && setShowCidadeDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowCidadeDropdown(false), 200)}
+                  placeholder="Buscar cidade..."
+                  className="h-9 text-xs pl-8"
+                />
+                {searchingCidades && (
+                  <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-zinc-400" />
                 )}
               </div>
+
+              {/* Search results dropdown */}
+              {showCidadeDropdown && cidades.length > 0 && (
+                <div className="absolute left-0 right-0 z-50 mx-4 mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                  {cidades.map((c: CidadePraca) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleCidadeSelect(c)}
+                      className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-zinc-50 transition-colors duration-150 border-b border-zinc-50 last:border-0"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MapPin className="w-3 h-3 text-zinc-400 shrink-0" />
+                        <span className="text-xs text-zinc-900 truncate">{c.cidade}</span>
+                        {c.estado && (
+                          <span className="text-[10px] text-zinc-400 shrink-0">{c.estado}</span>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-medium text-zinc-500 shrink-0 ml-2">
+                        {c.praca}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Selected city badge */}
+              {selectedCidade && (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 border border-emerald-100">
+                    <Check className="w-2.5 h-2.5" />
+                    {selectedCidade.praca}
+                  </span>
+                  {selectedCidade.unidade && (
+                    <span className="inline-flex items-center rounded-md bg-zinc-50 px-2 py-1 text-[10px] text-zinc-500 border border-zinc-100">
+                      {selectedCidade.unidade}
+                    </span>
+                  )}
+                </div>
+              )}
+            </Field>
+          </div>
+        )}
+
+        {/* Divider */}
+        {selectedCidade && <div className="h-px bg-zinc-100 mx-4" />}
+
+        {/* Values section */}
+        {selectedCidade && (
+          <div className="px-4 py-3 space-y-3">
+            {/* M3 */}
+            <Field label="Volume (M3)" icon={Package}>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={m3 || ''}
+                  onChange={(e) => setM3(parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="h-9 text-xs flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowDimensoes(!showDimensoes)}
+                  className={cn(
+                    'flex items-center gap-1 px-2.5 h-9 rounded-lg border text-[10px] font-medium transition-colors duration-150 shrink-0',
+                    showDimensoes
+                      ? 'bg-zinc-900 text-white border-zinc-900'
+                      : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
+                  )}
+                >
+                  <Ruler className="w-3 h-3" />
+                  {showDimensoes ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                </button>
+              </div>
+              {showDimensoes && (
+                <DimensoesCalculator onCalculate={(val) => { setM3(val); setShowDimensoes(false) }} />
+              )}
+            </Field>
+
+            {/* Valor Mercadoria */}
+            <Field label="Valor da mercadoria" icon={CircleDollarSign}>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400">R$</span>
+                <Input
+                  type="number"
+                  min={0}
+                  step={100}
+                  value={valorMercadoria || ''}
+                  onChange={(e) => setValorMercadoria(parseFloat(e.target.value) || 0)}
+                  placeholder="0,00"
+                  className="h-9 text-xs pl-8"
+                />
+              </div>
+            </Field>
+
+            {/* Entrega toggle */}
+            {params?.entregaAtiva && (
+              <div className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2.5">
+                <div>
+                  <span className="text-xs font-medium text-zinc-700">Entrega</span>
+                  <span className="text-[10px] text-zinc-400 ml-1.5">
+                    {formatCurrency(params.entregaFixa)}
+                  </span>
+                </div>
+                <Switch checked={incluirEntrega} onCheckedChange={setIncluirEntrega} />
+              </div>
             )}
           </div>
         )}
 
-        {/* M3 + Dimensions */}
-        {selectedCidade && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-zinc-600">Volume (M3)</Label>
-              <button
-                type="button"
-                onClick={() => setShowDimensoes(!showDimensoes)}
-                className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-700 transition-colors duration-150"
-              >
-                <Ruler className="w-3 h-3" />
-                Calcular por dimensoes
-                {showDimensoes ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              </button>
-            </div>
-            <Input
-              type="number"
-              min={0}
-              step={0.01}
-              value={m3 || ''}
-              onChange={(e) => setM3(parseFloat(e.target.value) || 0)}
-              placeholder="0.0000"
-              className="h-8 text-xs"
-            />
-            {showDimensoes && (
-              <DimensoesCalculator onCalculate={(val) => { setM3(val); setShowDimensoes(false) }} />
-            )}
-          </div>
-        )}
-
-        {/* Valor Mercadoria */}
-        {selectedCidade && (
-          <div className="space-y-1.5">
-            <Label className="text-xs text-zinc-600">Valor da Mercadoria (R$)</Label>
-            <Input
-              type="number"
-              min={0}
-              step={100}
-              value={valorMercadoria || ''}
-              onChange={(e) => setValorMercadoria(parseFloat(e.target.value) || 0)}
-              placeholder="0,00"
-              className="h-8 text-xs"
-            />
-          </div>
-        )}
-
-        {/* Incluir entrega */}
-        {selectedCidade && params?.entregaAtiva && (
-          <div className="flex items-center justify-between">
-            <Label className="text-xs text-zinc-600">Incluir entrega ({formatCurrency(params.entregaFixa)})</Label>
-            <Switch checked={incluirEntrega} onCheckedChange={setIncluirEntrega} />
-          </div>
-        )}
+        {/* Divider before result */}
+        {result && <div className="h-px bg-zinc-100 mx-4" />}
 
         {/* Result */}
         {result && (
-          <div className="space-y-3">
-            <FreteResultCard result={result} />
-
-            {/* Actions */}
-            <div className="flex gap-2">
-              {onInsertInChat && (
-                <Button
-                  size="sm"
-                  onClick={handleSendToChat}
-                  className="flex-1 h-8 text-xs gap-1.5"
-                >
-                  <Send className="w-3 h-3" />
-                  Enviar no chat
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleCopy}
-                className="h-8 text-xs gap-1.5"
-              >
-                <Copy className="w-3 h-3" />
-                Copiar
-              </Button>
-            </div>
+          <div className="px-4 py-3 space-y-3">
+            <FreteResultCard
+              result={result}
+              transportadoraNome={selectedTransportadora?.nome ?? ''}
+            />
           </div>
         )}
       </div>
+
+      {/* Sticky bottom actions */}
+      {result && (
+        <div className="border-t border-zinc-200 px-4 py-3 bg-white space-y-2">
+          <div className="flex gap-2">
+            {onInsertInChat && (
+              <Button
+                size="sm"
+                onClick={handleSendToChat}
+                className="flex-1 h-9 text-xs gap-1.5"
+              >
+                <Send className="w-3.5 h-3.5" />
+                Enviar no chat
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleCopy}
+              className="h-9 text-xs gap-1.5"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Copiar
+            </Button>
+          </div>
+          <button
+            type="button"
+            onClick={handleReset}
+            className="w-full flex items-center justify-center gap-1.5 text-[11px] text-zinc-400 hover:text-zinc-600 transition-colors py-1"
+          >
+            <RotateCcw className="w-3 h-3" />
+            Novo calculo
+          </button>
+        </div>
+      )}
     </div>
   )
 }
