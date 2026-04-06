@@ -576,7 +576,7 @@ export function FretePanel({ onInsertInChat, embedded }: FretePanelProps) {
         {/* Destination section */}
         {origemCodigo && (
           <div className="px-4 py-3 space-y-3">
-            <Field label="Destino" icon={MapPin}>
+            <Field label="Destino" icon={MapPin} className="relative">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
                 <Input
@@ -600,7 +600,7 @@ export function FretePanel({ onInsertInChat, embedded }: FretePanelProps) {
 
               {/* Search results dropdown */}
               {showCidadeDropdown && cidades.length > 0 && (
-                <div className="absolute left-0 right-0 z-50 mx-4 mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                <div className="absolute left-0 right-0 z-50 mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
                   {cidades.map((c: CidadePraca) => (
                     <button
                       key={c.id}
