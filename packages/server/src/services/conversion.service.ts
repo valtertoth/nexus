@@ -98,7 +98,7 @@ async function createConversionEvent(params: CreateConversionEventParams): Promi
   // Fetch contact data for CAPI matching
   const { data: contact } = await supabaseAdmin
     .from('contacts')
-    .select('wa_id, phone, email')
+    .select('wa_id, phone, email, fbc, fbp, gclid')
     .eq('id', params.contactId)
     .single()
 
@@ -119,6 +119,10 @@ async function createConversionEvent(params: CreateConversionEventParams): Promi
     contact_wa_id: contact?.wa_id,
     contact_phone: contact?.phone ?? undefined,
     contact_email: contact?.email ?? undefined,
+    // Click IDs for CAPI attribution (EMQ 8+)
+    attr_fbc: (contact as any)?.fbc ?? undefined,
+    attr_fbp: (contact as any)?.fbp ?? undefined,
+    attr_gclid: (contact as any)?.gclid ?? undefined,
   }
 
   const { data, error } = await supabaseAdmin
@@ -194,7 +198,7 @@ export async function getPendingConversions(
   const { data } = await supabaseAdmin
     .from('conversion_events')
     .select(
-      'id, event_type, value, currency, product_name, attr_source, attr_medium, attr_campaign, attr_campaign_id, attr_ad_id, attr_channel, contact_wa_id, contact_phone, contact_email, created_at'
+      'id, event_type, value, currency, product_name, attr_source, attr_medium, attr_campaign, attr_campaign_id, attr_ad_id, attr_channel, contact_wa_id, contact_phone, contact_email, attr_fbc, attr_fbp, attr_gclid, created_at'
     )
     .eq('org_id', orgId)
     .eq(statusField, 'pending')

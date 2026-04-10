@@ -44,6 +44,30 @@ function detectChannel(params: UtmParams): UtmChannel {
  * Also parses from referrer URLs shared by the customer.
  */
 export function parseUtmFromText(text: string): UtmParams | null {
+  // Check for Toth Intelligence ref: code (base64 encoded attribution)
+  const refMatch = text.match(/ref:([A-Za-z0-9+/=]+)/)
+  if (refMatch) {
+    try {
+      const decoded = Buffer.from(refMatch[1], 'base64').toString('utf-8')
+      const params: UtmParams = {}
+      const pairs = decoded.split('&')
+      for (const pair of pairs) {
+        const [key, val] = pair.split('=').map(s => decodeURIComponent(s))
+        if (key === 'src') params.utm_source = val
+        if (key === 'cmp') params.utm_campaign = val
+        if (key === 'fbc') (params as any).fbc = val
+        if (key === 'fbp') (params as any).fbp = val
+        if (key === 'gclid') (params as any).gclid = val
+      }
+      if (params.utm_source || (params as any).fbc || (params as any).gclid) {
+        if (!params.utm_source && (params as any).fbc) { params.utm_source = 'facebook'; params.utm_medium = 'paid'; }
+        if (!params.utm_source && (params as any).gclid) { params.utm_source = 'google'; params.utm_medium = 'cpc'; }
+        params.utm_channel = detectChannel(params)
+        return params
+      }
+    } catch { /* invalid base64, try URL fallback */ }
+  }
+
   // Match any URL in the text
   const urlPattern = /https?:\/\/[^\s]+/gi
   const urls = text.match(urlPattern)
