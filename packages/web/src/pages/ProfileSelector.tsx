@@ -105,52 +105,6 @@ export default function ProfileSelector() {
     loadSectors()
   }, [])
 
-  function seedTestProfiles() {
-    const sectorMap: Record<string, { id: string; name: string }> = {}
-    for (const s of sectors) {
-      sectorMap[s.name.toLowerCase()] = { id: s.id, name: s.name }
-    }
-
-    const testProfiles: Profile[] = [
-      {
-        id: crypto.randomUUID(),
-        name: 'Valter',
-        role: 'admin',
-        sectorId: null,
-        sectorName: null,
-        avatarColor: '#3b82f6',
-      },
-      {
-        id: crypto.randomUUID(),
-        name: 'Carlos',
-        role: 'vendedor',
-        sectorId: sectorMap['vendas']?.id || null,
-        sectorName: sectorMap['vendas']?.name || null,
-        avatarColor: '#10b981',
-      },
-      {
-        id: crypto.randomUUID(),
-        name: 'Ana',
-        role: 'suporte',
-        sectorId: sectorMap['suporte']?.id || null,
-        sectorName: sectorMap['suporte']?.name || null,
-        avatarColor: '#f59e0b',
-      },
-      {
-        id: crypto.randomUUID(),
-        name: 'Julia',
-        role: 'financeiro',
-        sectorId: sectorMap['financeiro']?.id || null,
-        sectorName: sectorMap['financeiro']?.name || null,
-        avatarColor: '#ec4899',
-      },
-    ]
-
-    for (const p of testProfiles) {
-      addProfile(p)
-    }
-  }
-
   function openCreateDialog() {
     setEditingProfile(null)
     setFormName('')
