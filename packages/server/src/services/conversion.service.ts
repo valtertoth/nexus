@@ -32,7 +32,7 @@ export async function recordOutcome(params: RecordOutcomeParams): Promise<void> 
       outcome_product: product,
       outcome_at: new Date().toISOString(),
       outcome_by: userId,
-      status: outcome === 'converted' ? 'resolved' : 'resolved',
+      status: outcome === 'converted' ? 'resolved' : 'closed',
       resolved_at: new Date().toISOString(),
     })
     .eq('id', conversationId)
@@ -120,9 +120,9 @@ async function createConversionEvent(params: CreateConversionEventParams): Promi
     contact_phone: contact?.phone ?? undefined,
     contact_email: contact?.email ?? undefined,
     // Click IDs for CAPI attribution (EMQ 8+)
-    attr_fbc: (contact as any)?.fbc ?? undefined,
-    attr_fbp: (contact as any)?.fbp ?? undefined,
-    attr_gclid: (contact as any)?.gclid ?? undefined,
+    attr_fbc: contact?.fbc ?? undefined,
+    attr_fbp: contact?.fbp ?? undefined,
+    attr_gclid: contact?.gclid ?? undefined,
   }
 
   const { data, error } = await supabaseAdmin

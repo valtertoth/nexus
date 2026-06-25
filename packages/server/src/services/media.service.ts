@@ -77,10 +77,9 @@ export async function downloadAndStore(
     throw new Error(`Storage upload failed: ${uploadError.message}`)
   }
 
-  // 6. Get signed URL (1 year expiry, since bucket is private)
   const { data: signedData } = await supabaseAdmin.storage
     .from('media')
-    .createSignedUrl(storagePath, 60 * 60 * 24 * 365)
+    .createSignedUrl(storagePath, 31536000)
 
   const localUrl = signedData?.signedUrl || storagePath
 

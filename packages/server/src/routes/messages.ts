@@ -7,7 +7,7 @@ import { sendTextMessage, sendMediaMessage } from '../services/whatsapp.service.
 import { withRetry } from '../lib/resilience.js'
 import { downloadAndStore } from '../services/media.service.js'
 import { saveMessage, updateConversationWithMessage } from '../services/conversation.service.js'
-import { requireString, requireUUID } from '../lib/validate.js'
+import { requireString, requireUUID, requireSafeUrl } from '../lib/validate.js'
 import { metrics } from '../lib/metrics.js'
 import type { ContentType } from '@nexus/shared'
 
@@ -299,10 +299,9 @@ messages.post('/send-media', userApiRateLimit, async (c) => {
     return c.json({ error: 'Erro ao fazer upload do arquivo' }, 500)
   }
 
-  // Create signed URL (1 year)
   const { data: signedData } = await supabaseAdmin.storage
     .from('media')
-    .createSignedUrl(storagePath, 60 * 60 * 24 * 365)
+    .createSignedUrl(storagePath, 31536000)
 
   const mediaUrl = signedData?.signedUrl || storagePath
 
@@ -381,7 +380,7 @@ messages.post('/send-media-url', userApiRateLimit, async (c) => {
   }>()
 
   requireUUID(conversationId, 'conversationId')
-  requireString(url, 'url')
+  requireSafeUrl(url, 'url')
 
   const contentType = rawType || 'image'
   const validTypes = ['image', 'audio', 'video', 'document']
@@ -480,7 +479,7 @@ messages.post('/send-media-url', userApiRateLimit, async (c) => {
 
   const { data: signedData } = await supabaseAdmin.storage
     .from('media')
-    .createSignedUrl(storagePath, 60 * 60 * 24 * 365)
+    .createSignedUrl(storagePath, 86400)
 
   const mediaUrl = signedData?.signedUrl || storagePath
 

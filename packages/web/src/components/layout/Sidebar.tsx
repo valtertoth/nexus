@@ -19,12 +19,9 @@ import {
   ChevronLeft,
   ChevronRight,
   LayoutDashboard,
-  Lightbulb,
-  GitMerge,
   Smartphone,
   Radio,
   Database,
-  Brain,
 } from 'lucide-react'
 import { getInitials } from '@nexus/shared'
 
@@ -52,11 +49,8 @@ const navSections: NavSection[] = [
   {
     title: 'Inteligencia',
     items: [
-      { to: '/brain', icon: Brain, label: 'Cerebro' },
       { to: '/knowledge', icon: Database, label: 'Conhecimento' },
-      { to: '/intelligence', icon: Lightbulb, label: 'Aprendizado' },
       { to: '/analytics', icon: BarChart3, label: 'Analytics' },
-      { to: '/attribution', icon: GitMerge, label: 'Funil' },
     ],
   },
   {
@@ -153,7 +147,8 @@ export function Sidebar() {
           ))}
         </div>
 
-        {/* Dev tools */}
+        {/* Dev tools -- only in development */}
+        {import.meta.env.DEV && (
         <div className="pt-1.5 mt-1 border-t border-zinc-800/40 space-y-0.5">
           {expanded && (
             <p className="px-2.5 pb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-700">
@@ -191,6 +186,7 @@ export function Sidebar() {
             )
           })}
         </div>
+        )}
       </nav>
 
       {/* Online Users */}

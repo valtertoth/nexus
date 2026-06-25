@@ -2,7 +2,6 @@ import { streamText, generateText } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { withTimeout, CircuitBreaker } from '../lib/resilience.js'
 
-/** Race a promise/thenable against a timeout, returning the fallback value on timeout instead of throwing. */
 function withTimeoutFallback<T>(promiseOrThenable: PromiseLike<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([
     Promise.resolve(promiseOrThenable),
@@ -10,7 +9,6 @@ function withTimeoutFallback<T>(promiseOrThenable: PromiseLike<T>, ms: number, f
   ])
 }
 
-// Circuit breaker: if Claude fails 5 times in a row, stop calling for 60s
 export const claudeCircuitBreaker = new CircuitBreaker('Claude AI', {
   threshold: 5,
   cooldownMs: 60_000,
@@ -33,36 +31,25 @@ interface AiSuggestionResult {
   latencyMs: number
 }
 
-/**
- * Generate an AI suggestion for a conversation.
- *
- * Flow:
- * 1. Fetch last 10 messages (context)
- * 2. Fetch sector system prompt
- * 3. Search relevant knowledge chunks (RAG)
- * 4. Build prompt and call Claude
- * 5. Save suggestion to message + log usage
- */
-export async function generateSuggestion(
+interface AiContext {
+  conversationHistory: string
+  systemPrompt: string
+  model: string
+  temperature: number
+  maxTokens: number
+  sources: AiRagSource[]
+  knowledgeContext: string
+  insightsContext: string
+  brainDirectives: string
+  contactProfileContext: string
+}
+
+async function buildAiContext(
   conversationId: string,
   latestMessage: string,
   sectorId: string | null,
-  orgId: string
-): Promise<AiSuggestionResult> {
-  const startTime = Date.now()
-
-  // 1. Check org token limit
-  const { data: org } = await supabaseAdmin
-    .from('organizations')
-    .select('ai_monthly_token_limit, ai_tokens_used_this_month')
-    .eq('id', orgId)
-    .single()
-
-  if (org && org.ai_monthly_token_limit != null && org.ai_tokens_used_this_month >= org.ai_monthly_token_limit) {
-    throw new Error('Limite mensal de tokens IA atingido para esta organização.')
-  }
-
-  // 2. Fetch last 10 messages for context
+  orgId: string,
+): Promise<AiContext> {
   const { data: messages } = await supabaseAdmin
     .from('messages')
     .select('sender_type, content, created_at')
@@ -78,7 +65,6 @@ export async function generateSuggestion(
     })
     .join('\n')
 
-  // 3. Fetch sector config
   let systemPrompt = 'Você é um assistente de atendimento ao cliente.'
   let model = 'claude-sonnet-4-20250514'
   let temperature = 0.3
@@ -99,14 +85,8 @@ export async function generateSuggestion(
     }
   }
 
-  // Cap max_tokens to prevent a single prompt from burning the monthly budget
-  maxTokens = Math.min(maxTokens, 1500)
-
-  // 4. RAG search for relevant knowledge
   let sources: AiRagSource[] = []
   let knowledgeContext = ''
-
-  // Fetch all context in parallel with 5-second timeouts to prevent hangs
   if (sectorId) {
     try {
       sources = await withTimeoutFallback(
@@ -124,7 +104,6 @@ export async function generateSuggestion(
     }
   }
 
-  // 4b. Fetch operational insights (Operations Brain)
   let insightsContext = ''
   if (sectorId) {
     try {
@@ -157,7 +136,6 @@ export async function generateSuggestion(
     }
   }
 
-  // 4c. Fetch org brain directives (Company Brain)
   let brainDirectives = ''
   try {
     const { data: directives } = await withTimeoutFallback(
@@ -173,10 +151,9 @@ export async function generateSuggestion(
     )
 
     if (directives && directives.length > 0) {
-      // Filter: only include directives that apply to this sector or to all sectors
       const applicable = directives.filter((d: Record<string, unknown>) => {
         const sectors = d.applies_to_sectors as string[] | null
-        if (!sectors || sectors.length === 0) return true // applies to all
+        if (!sectors || sectors.length === 0) return true
         return sectorId ? sectors.includes(sectorId) : true
       })
 
@@ -190,7 +167,6 @@ export async function generateSuggestion(
     console.error('[AI] Brain directives fetch failed:', err)
   }
 
-  // 4d. Fetch contact profile (Ecosystem Intelligence)
   let contactProfileContext = ''
   try {
     const { data: conv } = await withTimeoutFallback(
@@ -236,7 +212,6 @@ ${contact.total_revenue ? `Receita historica: R$ ${contact.total_revenue}` : ''}
       }
     }
 
-    // 4e. Fetch latest conversation snapshot (real-time intelligence)
     const { data: snapshot } = await withTimeoutFallback(
       supabaseAdmin
         .from('conversation_snapshots')
@@ -249,13 +224,12 @@ ${contact.total_revenue ? `Receita historica: R$ ${contact.total_revenue}` : ''}
       { data: null, error: null } as never
     )
 
-    let snapshotContext = ''
     if (snapshot) {
       const buyingSignals = (snapshot.buying_signals as string[]) || []
       const riskSignals = (snapshot.risk_signals as string[]) || []
       const opportunitySignals = (snapshot.opportunity_signals as string[]) || []
 
-      snapshotContext = `Intent: ${snapshot.detected_intent || 'indefinido'}
+      const snapshotContext = `Intent: ${snapshot.detected_intent || 'indefinido'}
 Temperatura: ${snapshot.detected_temperature || 'indefinida'}
 Estagio de venda: ${snapshot.detected_stage || 'indefinido'}
 Urgencia: ${snapshot.detected_urgency || 'normal'}
@@ -263,10 +237,7 @@ ${buyingSignals.length > 0 ? `Sinais de compra: ${buyingSignals.join('; ')}` : '
 ${riskSignals.length > 0 ? `Sinais de risco: ${riskSignals.join('; ')}` : ''}
 ${opportunitySignals.length > 0 ? `Oportunidades: ${opportunitySignals.join('; ')}` : ''}
 ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action}` : ''}`
-    }
 
-    // Merge into contactProfileContext
-    if (snapshotContext) {
       contactProfileContext = contactProfileContext
         ? `${contactProfileContext}\n\nANALISE EM TEMPO REAL DA CONVERSA:\n${snapshotContext}`
         : `ANALISE EM TEMPO REAL DA CONVERSA:\n${snapshotContext}`
@@ -275,14 +246,45 @@ ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action
     console.error('[AI] Contact/snapshot fetch failed, proceeding without:', err)
   }
 
-  // 5. Build the full system prompt
-  const fullSystemPrompt = buildSystemPrompt(systemPrompt, knowledgeContext, insightsContext, brainDirectives, contactProfileContext)
+  return {
+    conversationHistory,
+    systemPrompt,
+    model,
+    temperature,
+    maxTokens,
+    sources,
+    knowledgeContext,
+    insightsContext,
+    brainDirectives,
+    contactProfileContext,
+  }
+}
 
-  // 6. Build user message
-  const userMessage = buildUserMessage(conversationHistory, latestMessage)
+export async function generateSuggestion(
+  conversationId: string,
+  latestMessage: string,
+  sectorId: string | null,
+  orgId: string
+): Promise<AiSuggestionResult> {
+  const startTime = Date.now()
 
-  // 7. Call Claude via AI SDK (non-streaming for background suggestions)
-  // Circuit breaker + 40s timeout prevents cascading failures
+  const { data: org } = await supabaseAdmin
+    .from('organizations')
+    .select('ai_monthly_token_limit, ai_tokens_used_this_month')
+    .eq('id', orgId)
+    .single()
+
+  if (org && org.ai_monthly_token_limit != null && org.ai_tokens_used_this_month >= org.ai_monthly_token_limit) {
+    throw new Error('Limite mensal de tokens IA atingido para esta organização.')
+  }
+
+  const ctx = await buildAiContext(conversationId, latestMessage, sectorId, orgId)
+  const { model, temperature, sources } = ctx
+  const maxTokens = Math.min(ctx.maxTokens, 1500)
+
+  const fullSystemPrompt = buildSystemPrompt(ctx.systemPrompt, ctx.knowledgeContext, ctx.insightsContext, ctx.brainDirectives, ctx.contactProfileContext)
+  const userMessage = buildUserMessage(ctx.conversationHistory, latestMessage)
+
   console.log(`[AI] Chamando Claude (${model})...`)
   const result = await claudeCircuitBreaker.execute(() =>
     withTimeout(
@@ -307,7 +309,6 @@ ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action
     total: (result.usage?.promptTokens || 0) + (result.usage?.completionTokens || 0),
   }
 
-  // 8. Save suggestion to the latest contact message
   const { data: latestMsg } = await supabaseAdmin
     .from('messages')
     .select('id')
@@ -337,22 +338,24 @@ ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action
       .eq('id', latestMsg.id)
   }
 
-  // 9. Log usage
-  await supabaseAdmin.from('ai_usage_logs').insert({
-    org_id: orgId,
-    conversation_id: conversationId,
-    model,
-    prompt_tokens: tokenInfo.prompt,
-    completion_tokens: tokenInfo.completion,
-    total_tokens: tokenInfo.total,
-    latency_ms: latencyMs,
-  })
+  try {
+    await supabaseAdmin.from('ai_usage_logs').insert({
+      org_id: orgId,
+      conversation_id: conversationId,
+      model,
+      prompt_tokens: tokenInfo.prompt,
+      completion_tokens: tokenInfo.completion,
+      total_tokens: tokenInfo.total,
+      latency_ms: latencyMs,
+    })
 
-  // 10. Update org token count (atomic via RPC)
-  await supabaseAdmin.rpc('increment_ai_tokens', {
-    p_org_id: orgId,
-    p_tokens: tokenInfo.total,
-  })
+    await supabaseAdmin.rpc('increment_ai_tokens', {
+      p_org_id: orgId,
+      p_tokens: tokenInfo.total,
+    })
+  } catch (logErr) {
+    console.error('[AI] Usage logging failed (suggestion was still generated):', logErr)
+  }
 
   console.log(`[AI] Suggestion generated in ${latencyMs}ms — ${tokenInfo.total} tokens — ${sources.length} sources`)
 
@@ -365,9 +368,6 @@ ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action
   }
 }
 
-/**
- * Stream an AI suggestion via SSE (Server-Sent Events).
- */
 export async function* streamSuggestion(
   conversationId: string,
   latestMessage: string,
@@ -377,7 +377,6 @@ export async function* streamSuggestion(
   const startTime = Date.now()
 
   try {
-    // Check token limit
     const { data: org } = await supabaseAdmin
       .from('organizations')
       .select('ai_monthly_token_limit, ai_tokens_used_this_month')
@@ -389,220 +388,16 @@ export async function* streamSuggestion(
       return
     }
 
-    // Fetch context
-    const { data: messages } = await supabaseAdmin
-      .from('messages')
-      .select('sender_type, content')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: false })
-      .limit(10)
+    const ctx = await buildAiContext(conversationId, latestMessage, sectorId, orgId)
+    const { model, temperature, sources } = ctx
+    const maxTokens = Math.min(ctx.maxTokens, 2000)
 
-    const conversationHistory = (messages || [])
-      .reverse()
-      .map((m) => {
-        const role = m.sender_type === 'contact' ? 'Cliente' : 'Atendente'
-        return `${role}: ${m.content || '[mídia]'}`
-      })
-      .join('\n')
-
-    // Sector config
-    let systemPrompt = 'Você é um assistente de atendimento ao cliente.'
-    let model = 'claude-sonnet-4-20250514'
-    let temperature = 0.3
-    let maxTokens = 1024
-
-    if (sectorId) {
-      const { data: sector } = await supabaseAdmin
-        .from('sectors')
-        .select('system_prompt, ai_model, ai_temperature, ai_max_tokens')
-        .eq('id', sectorId)
-        .single()
-
-      if (sector) {
-        systemPrompt = sector.system_prompt || systemPrompt
-        model = sector.ai_model || model
-        temperature = sector.ai_temperature ?? temperature
-        maxTokens = sector.ai_max_tokens ?? maxTokens
-      }
-    }
-
-    // Cap max_tokens for streaming consult (slightly higher than suggestions)
-    maxTokens = Math.min(maxTokens, 2000)
-
-    // RAG (with 5s timeout to prevent hangs)
-    let sources: AiRagSource[] = []
-    let knowledgeContext = ''
-    if (sectorId) {
-      try {
-        sources = await withTimeoutFallback(
-          searchRelevantChunks(latestMessage, sectorId, orgId),
-          5_000,
-          [] as AiRagSource[]
-        )
-        if (sources.length > 0) {
-          knowledgeContext = sources
-            .map((s, i) => `[${i + 1}] (${s.documentName})\n${s.content}`)
-            .join('\n\n')
-        }
-      } catch {
-        // Continue without RAG
-      }
-    }
-
-    // Fetch operational insights for streaming too (with 5s timeout)
-    let streamInsightsContext = ''
-    if (sectorId) {
-      try {
-        const { data: insights } = await withTimeoutFallback(
-          supabaseAdmin
-            .from('conversation_insights')
-            .select('insight_type, title, description, example_quote, playbook')
-            .eq('sector_id', sectorId)
-            .eq('org_id', orgId)
-            .gte('confidence', 0.7)
-            .in('insight_type', ['winning_pattern', 'key_phrase', 'objection_handled', 'playbook_step'])
-            .order('confidence', { ascending: false })
-            .limit(5),
-          5_000,
-          { data: null, error: null } as never
-        )
-
-        if (insights && insights.length > 0) {
-          streamInsightsContext = insights
-            .map((ins) => {
-              let entry = `- ${ins.title}: ${ins.description}`
-              if (ins.example_quote) entry += `\n  Exemplo: "${ins.example_quote}"`
-              if (ins.playbook) entry += `\n  Acao: ${ins.playbook}`
-              return entry
-            })
-            .join('\n')
-        }
-      } catch {
-        // Continue without insights
-      }
-    }
-
-    // 4c. Fetch org brain directives (Company Brain) (with 5s timeout)
-    let streamBrainDirectives = ''
-    try {
-      const { data: directives } = await withTimeoutFallback(
-        supabaseAdmin
-          .from('org_brain_directives')
-          .select('category, title, content')
-          .eq('org_id', orgId)
-          .eq('is_active', true)
-          .order('priority', { ascending: false })
-          .limit(8),
-        5_000,
-        { data: null, error: null } as never
-      )
-
-      if (directives && directives.length > 0) {
-        const applicable = directives.filter((d: Record<string, unknown>) => {
-          const sectors = d.applies_to_sectors as string[] | null
-          if (!sectors || sectors.length === 0) return true
-          return sectorId ? sectors.includes(sectorId) : true
-        })
-
-        if (applicable.length > 0) {
-          streamBrainDirectives = applicable
-            .map((d) => `[${(d.category as string).toUpperCase()}] ${d.title}:\n${d.content}`)
-            .join('\n\n')
-        }
-      }
-    } catch {
-      // Continue without brain directives
-    }
-
-    // 4d. Fetch contact profile + snapshot (Ecosystem Intelligence) (with 5s timeout)
-    let streamContactProfileContext = ''
-    try {
-      const { data: conv } = await withTimeoutFallback(
-        supabaseAdmin
-          .from('conversations')
-          .select('contact_id, assigned_to')
-          .eq('id', conversationId)
-          .single(),
-        5_000,
-        { data: null, error: null } as never
-      )
-
-      if (conv?.contact_id) {
-        const { data: contact } = await withTimeoutFallback(
-          supabaseAdmin
-            .from('contacts')
-            .select('name, profile_summary, profile_traits, profile_interests, profile_objections, profile_stage, profile_sentiment, total_conversations, total_revenue')
-            .eq('id', conv.contact_id)
-            .single(),
-          5_000,
-          { data: null, error: null } as never
-        )
-
-        if (contact?.profile_summary) {
-          const traits = contact.profile_traits as Record<string, number> || {}
-          const topTraits = Object.entries(traits)
-            .filter(([, v]) => v >= 0.6)
-            .map(([k, v]) => `${k}(${Math.round(v * 100)}%)`)
-            .join(', ')
-
-          const interests = (contact.profile_interests as string[]) || []
-          const objections = (contact.profile_objections as string[]) || []
-
-          streamContactProfileContext = `Nome: ${contact.name || 'desconhecido'}
-Resumo: ${contact.profile_summary}
-Estagio: ${contact.profile_stage || 'desconhecido'}
-Sentimento: ${contact.profile_sentiment || 'neutro'}
-${topTraits ? `Tracos dominantes: ${topTraits}` : ''}
-${interests.length > 0 ? `Interesses: ${interests.join(', ')}` : ''}
-${objections.length > 0 ? `Objecoes recorrentes: ${objections.join(', ')}` : ''}
-${contact.total_conversations ? `Conversas anteriores: ${contact.total_conversations}` : 'Primeiro contato'}
-${contact.total_revenue ? `Receita historica: R$ ${contact.total_revenue}` : ''}`
-        }
-      }
-
-      // 4e. Fetch latest conversation snapshot (with 5s timeout)
-      const { data: snapshot } = await withTimeoutFallback(
-        supabaseAdmin
-          .from('conversation_snapshots')
-          .select('detected_intent, detected_temperature, detected_stage, detected_urgency, buying_signals, risk_signals, opportunity_signals, recommended_action, seller_approach_score')
-          .eq('conversation_id', conversationId)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single(),
-        5_000,
-        { data: null, error: null } as never
-      )
-
-      if (snapshot) {
-        const buyingSignals = (snapshot.buying_signals as string[]) || []
-        const riskSignals = (snapshot.risk_signals as string[]) || []
-        const opportunitySignals = (snapshot.opportunity_signals as string[]) || []
-
-        const snapshotContext = `Intent: ${snapshot.detected_intent || 'indefinido'}
-Temperatura: ${snapshot.detected_temperature || 'indefinida'}
-Estagio de venda: ${snapshot.detected_stage || 'indefinido'}
-Urgencia: ${snapshot.detected_urgency || 'normal'}
-${buyingSignals.length > 0 ? `Sinais de compra: ${buyingSignals.join('; ')}` : ''}
-${riskSignals.length > 0 ? `Sinais de risco: ${riskSignals.join('; ')}` : ''}
-${opportunitySignals.length > 0 ? `Oportunidades: ${opportunitySignals.join('; ')}` : ''}
-${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action}` : ''}`
-
-        streamContactProfileContext = streamContactProfileContext
-          ? `${streamContactProfileContext}\n\nANALISE EM TEMPO REAL DA CONVERSA:\n${snapshotContext}`
-          : `ANALISE EM TEMPO REAL DA CONVERSA:\n${snapshotContext}`
-      }
-    } catch {
-      // Continue without ecosystem intelligence
-    }
-
-    // Send sources first
     if (sources.length > 0) {
       yield { type: 'sources', data: JSON.stringify(sources) }
     }
 
-    // Stream Claude response
-    const fullSystemPrompt = buildSystemPrompt(systemPrompt, knowledgeContext, streamInsightsContext, streamBrainDirectives, streamContactProfileContext)
-    const userMessage = buildUserMessage(conversationHistory, latestMessage)
+    const fullSystemPrompt = buildSystemPrompt(ctx.systemPrompt, ctx.knowledgeContext, ctx.insightsContext, ctx.brainDirectives, ctx.contactProfileContext)
+    const userMessage = buildUserMessage(ctx.conversationHistory, latestMessage)
 
     const result = await streamText({
       model: anthropic(model),
@@ -622,7 +417,6 @@ ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action
     const latencyMs = Date.now() - startTime
     const totalTokens = (usage?.promptTokens || 0) + (usage?.completionTokens || 0)
 
-    // Save to DB
     const { data: latestMsg } = await supabaseAdmin
       .from('messages')
       .select('id')
@@ -652,7 +446,6 @@ ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action
         .eq('id', latestMsg.id)
     }
 
-    // Log usage
     await supabaseAdmin.from('ai_usage_logs').insert({
       org_id: orgId,
       conversation_id: conversationId,
@@ -663,7 +456,6 @@ ${snapshot.recommended_action ? `Acao recomendada: ${snapshot.recommended_action
       latency_ms: latencyMs,
     })
 
-    // Update org tokens (atomic via RPC)
     await supabaseAdmin.rpc('increment_ai_tokens', {
       p_org_id: orgId,
       p_tokens: totalTokens,
@@ -690,7 +482,6 @@ function buildSystemPrompt(
 ): string {
   let prompt = sectorPrompt
 
-  // Customer Intelligence: who is this person and what's happening in this conversation
   if (contactProfileContext) {
     prompt += `
 
@@ -706,7 +497,6 @@ COMO USAR ESTA INTELIGENCIA:
 - Siga a acao recomendada quando disponivel`
   }
 
-  // Company Brain: organizational directives from the CEO/manager
   if (brainDirectives) {
     prompt += `
 
@@ -714,7 +504,6 @@ DIRETRIZES DA EMPRESA (definidas pela gestao — siga rigorosamente):
 ${brainDirectives}`
   }
 
-  // Operations Brain: learned patterns from real conversations
   if (insightsContext) {
     prompt += `
 
@@ -722,7 +511,6 @@ APRENDIZADOS OPERACIONAIS (padroes extraidos de conversas reais):
 ${insightsContext}`
   }
 
-  // Knowledge Brain: RAG documents
   if (knowledgeContext) {
     prompt += `
 

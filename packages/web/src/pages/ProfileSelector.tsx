@@ -337,11 +337,6 @@ export default function ProfileSelector() {
                 <Plus className="w-4 h-4 mr-2" />
                 Criar perfil
               </Button>
-              {sectors.length > 0 && (
-                <Button variant="outline" onClick={seedTestProfiles}>
-                  Carregar perfis de teste
-                </Button>
-              )}
             </div>
           </div>
         )}

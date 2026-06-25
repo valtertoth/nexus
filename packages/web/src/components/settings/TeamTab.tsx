@@ -11,6 +11,7 @@ import { getInitials } from '@nexus/shared'
 import type { User, Sector, UserRole } from '@nexus/shared'
 import { Loader2, UserPlus, Shield, ShieldCheck, UserCog } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { toast } from 'sonner'
 
 const ROLE_LABELS: Record<UserRole, string> = {
   owner: 'Proprietário',
@@ -41,18 +42,31 @@ export function TeamTab() {
       return
     }
 
-    const [membersRes, sectorsRes] = await Promise.all([
-      supabase
-        .from('users')
-        .select('*')
-        .eq('org_id', orgId)
-        .order('role', { ascending: true }),
-      supabase
-        .from('sectors')
-        .select('*')
-        .eq('org_id', orgId)
-        .order('name'),
-    ])
+    let membersRes, sectorsRes
+    try {
+      [membersRes, sectorsRes] = await Promise.all([
+        supabase
+          .from('users')
+          .select('*')
+          .eq('org_id', orgId)
+          .order('role', { ascending: true }),
+        supabase
+          .from('sectors')
+          .select('*')
+          .eq('org_id', orgId)
+          .order('name'),
+      ])
+    } catch {
+      toast.error('Erro ao carregar equipe')
+      setLoading(false)
+      return
+    }
+
+    if (membersRes.error || sectorsRes.error) {
+      toast.error('Erro ao carregar equipe')
+      setLoading(false)
+      return
+    }
 
     setMembers((membersRes.data || []) as User[])
     setSectors((sectorsRes.data || []) as Sector[])
@@ -67,34 +81,43 @@ export function TeamTab() {
     if (!inviteEmail.trim() || !orgId) return
     setInviting(true)
 
-    // In MVP, we create the user record (they'll need to sign up separately)
-    // A proper implementation would send an email invitation
-    // For now, show a placeholder
-    alert(`Convite enviado para ${inviteEmail}\n\n(Em produção, isso enviaria um email de convite)`)
+    toast.error('Convites por email ainda nao estao disponiveis. Crie o usuario diretamente nas configuracoes do Supabase.')
 
     setInviteEmail('')
     setInviting(false)
   }
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
-    await supabase
+    const { error } = await supabase
       .from('users')
       .update({ role: newRole })
       .eq('id', userId)
       .eq('org_id', orgId)
 
+    if (error) {
+      toast.error('Erro ao alterar papel do membro')
+      return
+    }
+
+    toast.success('Papel atualizado')
     setMembers((prev) =>
       prev.map((m) => (m.id === userId ? { ...m, role: newRole } : m))
     )
   }
 
   const handleSectorChange = async (userId: string, sectorId: string | null) => {
-    await supabase
+    const { error } = await supabase
       .from('users')
       .update({ sector_id: sectorId })
       .eq('id', userId)
       .eq('org_id', orgId)
 
+    if (error) {
+      toast.error('Erro ao alterar setor do membro')
+      return
+    }
+
+    toast.success('Setor atualizado')
     setMembers((prev) =>
       prev.map((m) => (m.id === userId ? { ...m, sector_id: sectorId } : m))
     )

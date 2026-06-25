@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { supabase } from '@/lib/supabase'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import { Loader2, Save, Brain, Zap, DollarSign } from 'lucide-react'
+import { toast } from 'sonner'
 
 export function AiTab() {
   const { profile } = useAuthContext()
@@ -31,7 +32,8 @@ export function AiTab() {
       .select('ai_monthly_token_limit, ai_tokens_used_this_month, settings')
       .eq('id', orgId)
       .single()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) { toast.error('Erro ao carregar configuracoes de IA'); return }
         if (data) {
           setTokenLimit(data.ai_monthly_token_limit)
           setTokensUsed(data.ai_tokens_used_this_month)
@@ -45,7 +47,8 @@ export function AiTab() {
     // Fetch AI usage for current month
     supabase
       .rpc('ai_usage_summary', { p_org_id: orgId, p_days: 30 })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) { toast.error('Erro ao carregar uso de IA'); return }
         if (data) {
           const summary = Array.isArray(data) ? data[0] : data
           setAiSummary(
@@ -64,15 +67,30 @@ export function AiTab() {
     setSaving(true)
     setSaved(false)
 
-    await supabase
+    const { data: current } = await supabase
+      .from('organizations')
+      .select('settings')
+      .eq('id', orgId)
+      .single()
+
+    const existingSettings = (current?.settings as Record<string, unknown>) || {}
+
+    const { error } = await supabase
       .from('organizations')
       .update({
         ai_monthly_token_limit: tokenLimit,
-        settings: { default_ai_mode: defaultAiMode },
+        settings: { ...existingSettings, default_ai_mode: defaultAiMode },
       })
       .eq('id', orgId)
 
     setSaving(false)
+
+    if (error) {
+      toast.error('Erro ao salvar configuracoes de IA')
+      return
+    }
+
+    toast.success('Configuracoes de IA salvas')
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }

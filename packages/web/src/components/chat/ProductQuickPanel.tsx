@@ -27,11 +27,10 @@ import {
   Box,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getAuthHeaders } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { toast } from 'sonner'
 import type { ShopifyProduct, ShopifyProductVariant } from '@nexus/shared'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface ProductQuickPanelProps {
   open: boolean
@@ -404,13 +403,10 @@ export function ProductQuickPanel({
   const fetchProducts = useCallback(async (query?: string) => {
     setLoading(true)
     try {
-      const headers = getAuthHeaders()
-      const url = query
-        ? `${API_BASE}/api/quotes/shopify/products?q=${encodeURIComponent(query)}`
-        : `${API_BASE}/api/quotes/shopify/products`
-      const res = await fetch(url, { headers })
-      if (!res.ok) throw new Error('Erro ao buscar produtos')
-      const data = await res.json()
+      const path = query
+        ? `/api/quotes/shopify/products?q=${encodeURIComponent(query)}`
+        : `/api/quotes/shopify/products`
+      const data = await api.get<{ products: ShopifyProduct[] }>(path)
       setProducts(data.products || [])
     } catch (err) {
       console.error('[ProductPanel] Fetch failed:', err)
@@ -688,7 +684,7 @@ export function ProductQuickPanel({
                       toast.success('Foto enviada!')
                     } else {
                       handleSend(
-                        `Foto ${idx + 1} — ${selectedProduct.title}]\n${url}`,
+                        `Foto ${idx + 1} — ${selectedProduct.title}\n${url}`,
                         'Link da foto enviado!'
                       )
                     }
@@ -980,7 +976,7 @@ export function ProductQuickPanel({
                                   toast.success(`Foto ${idx + 1} enviada!`)
                                 } else {
                                   handleSend(
-                                    `Foto ${idx + 1} — ${selectedProduct.title}]\n${imgUrl}`,
+                                    `Foto ${idx + 1} — ${selectedProduct.title}\n${imgUrl}`,
                                     `Foto ${idx + 1} enviada!`
                                   )
                                 }
