@@ -399,7 +399,14 @@ export async function* streamSuggestion(
     const fullSystemPrompt = buildSystemPrompt(ctx.systemPrompt, ctx.knowledgeContext, ctx.insightsContext, ctx.brainDirectives, ctx.contactProfileContext)
     const userMessage = buildUserMessage(ctx.conversationHistory, latestMessage)
 
-    const result = await streamText({
+    // Check circuit breaker before streaming (streamText is synchronous)
+    const cbState = claudeCircuitBreaker.getState()
+    if (cbState.state === 'OPEN') {
+      yield { type: 'error', data: 'Serviço de IA temporariamente indisponível. Tente novamente em alguns segundos.' }
+      return
+    }
+
+    const result = streamText({
       model: anthropic(model),
       system: fullSystemPrompt,
       messages: [{ role: 'user', content: userMessage }],
@@ -408,9 +415,17 @@ export async function* streamSuggestion(
     })
 
     let fullText = ''
-    for await (const chunk of result.textStream) {
-      fullText += chunk
-      yield { type: 'text', data: chunk }
+    let streamFailed = false
+    try {
+      for await (const chunk of result.textStream) {
+        fullText += chunk
+        yield { type: 'text', data: chunk }
+      }
+    } catch (streamErr) {
+      streamFailed = true
+      // Record failure so circuit breaker tracks streaming errors too
+      await claudeCircuitBreaker.execute(() => Promise.reject(streamErr)).catch(() => {})
+      throw streamErr
     }
 
     const usage = await result.usage

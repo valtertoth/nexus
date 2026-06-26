@@ -174,14 +174,14 @@ export function validateWebhookSignature(
 
 // --- Sending ---
 
-// Cache credentials in memory to avoid repeated DB calls + decryption
-let credentialsCache: { phoneNumberId: string; accessToken: string; orgId: string; cachedAt: number } | null = null
+// Cache credentials per org to avoid repeated DB calls + decryption
+const credentialsCache = new Map<string, { phoneNumberId: string; accessToken: string; cachedAt: number }>()
 const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
-async function getOrgCredentials(orgId: string) {
-  // Return cached credentials if fresh
-  if (credentialsCache && credentialsCache.orgId === orgId && Date.now() - credentialsCache.cachedAt < CACHE_TTL_MS) {
-    return { phoneNumberId: credentialsCache.phoneNumberId, accessToken: credentialsCache.accessToken }
+export async function getOrgCredentials(orgId: string) {
+  const cached = credentialsCache.get(orgId)
+  if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
+    return { phoneNumberId: cached.phoneNumberId, accessToken: cached.accessToken }
   }
 
   // Fetch org data (needed for multiple strategies)
@@ -201,14 +201,14 @@ async function getOrgCredentials(orgId: string) {
   const settingsToken = (org?.settings as Record<string, unknown>)?.wa_access_token as string | undefined
   if (settingsToken) {
     console.log(`[WhatsApp] credentials loaded from settings for org=${orgId}`)
-    credentialsCache = { phoneNumberId, accessToken: settingsToken, orgId, cachedAt: Date.now() }
+    credentialsCache.set(orgId, { phoneNumberId, accessToken: settingsToken, cachedAt: Date.now() })
     return { phoneNumberId, accessToken: settingsToken }
   }
 
   // Strategy 2: Environment variables
   const envAccessToken = process.env.WA_ACCESS_TOKEN
   if (envAccessToken) {
-    credentialsCache = { phoneNumberId, accessToken: envAccessToken, orgId, cachedAt: Date.now() }
+    credentialsCache.set(orgId, { phoneNumberId, accessToken: envAccessToken, cachedAt: Date.now() })
     return { phoneNumberId, accessToken: envAccessToken }
   }
 
@@ -220,7 +220,7 @@ async function getOrgCredentials(orgId: string) {
 
     if (!rpcError && tokenData) {
       console.log(`[WhatsApp] credentials loaded via DB decrypt for org=${orgId}`)
-      credentialsCache = { phoneNumberId, accessToken: tokenData as string, orgId, cachedAt: Date.now() }
+      credentialsCache.set(orgId, { phoneNumberId, accessToken: tokenData as string, cachedAt: Date.now() })
       return { phoneNumberId, accessToken: tokenData as string }
     }
     if (rpcError) {
@@ -233,9 +233,9 @@ async function getOrgCredentials(orgId: string) {
 
 /** Invalidate cached credentials (e.g. after 401/403 from WhatsApp API) */
 function invalidateCredentialsCache(orgId: string): void {
-  if (credentialsCache && credentialsCache.orgId === orgId) {
+  if (credentialsCache.has(orgId)) {
     console.warn(`[WhatsApp] Invalidating credential cache for org=${orgId} due to auth error`)
-    credentialsCache = null
+    credentialsCache.delete(orgId)
   }
 }
 
@@ -279,12 +279,12 @@ export async function sendTextMessage(
     if (response.status === 401 || response.status === 403) {
       invalidateCredentialsCache(orgId)
     }
-    // Respect Meta's rate limit headers — wait before retry
     if (response.status === 429) {
       const retryAfter = response.headers.get('retry-after')
       const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000
-      console.warn(`[WhatsApp] Rate limited (429) — waiting ${waitMs}ms before retry`)
+      console.warn(`[WhatsApp] Rate limited (429) — waiting ${waitMs}ms then retrying`)
       await new Promise(r => setTimeout(r, waitMs))
+      throw new Error(`WhatsApp API rate limited (429) — retry after wait`)
     }
     console.error(`[WhatsApp] send text failed — to=${to}, orgId=${orgId}, status=${response.status}, error=${JSON.stringify(error)}`)
     throw new Error(`WhatsApp API error (${response.status}): ${JSON.stringify(error)}`)
@@ -341,7 +341,7 @@ export async function getMediaUrl(
         // Invalidate cached credentials on auth errors
         if (response.status === 401 || response.status === 403) {
           // getMediaUrl uses a direct token, but clear org cache as a safety measure
-          credentialsCache = null
+          credentialsCache.clear()
         }
         throw new Error(`Failed to get media URL for ${mediaId}: ${response.status}`)
       }

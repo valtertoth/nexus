@@ -18,7 +18,7 @@ interface AiSuggestionState {
 interface MessageStore {
   messages: Record<string, Message[]>
   aiSuggestion: AiSuggestionState | null
-  sendingMessage: boolean
+  sendingMessage: Record<string, boolean>
 
   // Per-conversation pagination state
   hasMore: Record<string, boolean>
@@ -40,7 +40,7 @@ interface MessageStore {
   setLoadingMore: (conversationId: string, loading: boolean) => void
   setAiSuggestion: (suggestion: AiSuggestionState | null) => void
   clearAiSuggestion: () => void
-  setSendingMessage: (sending: boolean) => void
+  setSendingMessage: (conversationId: string, sending: boolean) => void
 }
 
 // Helper: update LRU access order (move id to end = most recent)
@@ -53,7 +53,7 @@ function touchAccess(order: string[], id: string): string[] {
 export const useMessageStore = create<MessageStore>((set) => ({
   messages: {},
   aiSuggestion: null,
-  sendingMessage: false,
+  sendingMessage: {},
   hasMore: {},
   loadingMore: {},
   loadedConversations: new Set(),
@@ -180,5 +180,8 @@ export const useMessageStore = create<MessageStore>((set) => ({
 
   clearAiSuggestion: () => set({ aiSuggestion: null }),
 
-  setSendingMessage: (sending) => set({ sendingMessage: sending }),
+  setSendingMessage: (conversationId, sending) =>
+    set((s) => ({
+      sendingMessage: { ...s.sendingMessage, [conversationId]: sending },
+    })),
 }))

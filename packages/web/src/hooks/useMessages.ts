@@ -1,37 +1,48 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
-import { supabase, getAuthHeaders } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { useMessageStore } from '@/stores/messageStore'
 import { useConversationStore } from '@/stores/conversationStore'
 import { playNotificationSound, showMessageNotification } from '@/lib/notifications'
 import type { Message } from '@nexus/shared'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const EMPTY_MESSAGES: Message[] = []
 
 export function useMessages(conversationId: string | null) {
-  const {
-    messages: allMessages,
-    aiSuggestion,
-    sendingMessage,
-    hasMore,
-    loadingMore,
-    loadedConversations,
-    setMessages,
-    addMessage,
-    updateMessage,
-    removeMessage,
-    prependMessages,
-    evictOldConversations,
-    setAiSuggestion,
-    clearAiSuggestion,
-    setSendingMessage,
-    setHasMore,
-    setLoadingMore,
-  } = useMessageStore()
+  // Per-conversation state selectors — only re-render when THIS conversation's data changes
+  const messages = useMessageStore(
+    (s) => (conversationId ? s.messages[conversationId] ?? EMPTY_MESSAGES : EMPTY_MESSAGES)
+  )
+  const aiSuggestion = useMessageStore((s) => s.aiSuggestion)
+  const sendingMessage = useMessageStore(
+    (s) => (conversationId ? s.sendingMessage[conversationId] ?? false : false)
+  )
+  const hasMore = useMessageStore(
+    (s) => (conversationId ? s.hasMore[conversationId] ?? true : true)
+  )
+  const loadingMore = useMessageStore(
+    (s) => (conversationId ? s.loadingMore[conversationId] ?? false : false)
+  )
+  const hasLoaded = useMessageStore(
+    (s) => (conversationId ? s.loadedConversations.has(conversationId) : false)
+  )
 
-  const { update: updateConversation, resetUnread } = useConversationStore()
+  // Action selectors — stable references, never trigger re-renders
+  const setMessages = useMessageStore((s) => s.setMessages)
+  const addMessage = useMessageStore((s) => s.addMessage)
+  const updateMessage = useMessageStore((s) => s.updateMessage)
+  const removeMessage = useMessageStore((s) => s.removeMessage)
+  const prependMessages = useMessageStore((s) => s.prependMessages)
+  const evictOldConversations = useMessageStore((s) => s.evictOldConversations)
+  const setAiSuggestion = useMessageStore((s) => s.setAiSuggestion)
+  const clearAiSuggestion = useMessageStore((s) => s.clearAiSuggestion)
+  const setSendingMessage = useMessageStore((s) => s.setSendingMessage)
+  const setHasMore = useMessageStore((s) => s.setHasMore)
+  const setLoadingMore = useMessageStore((s) => s.setLoadingMore)
 
-  const messages = conversationId ? allMessages[conversationId] || [] : []
+  const updateConversation = useConversationStore((s) => s.update)
+  const resetUnread = useConversationStore((s) => s.resetUnread)
 
   // Use refs for callbacks to avoid subscription churn
   const addMessageRef = useRef(addMessage)
@@ -82,16 +93,18 @@ export function useMessages(conversationId: string | null) {
   }, [setMessages, setHasMore, setAiSuggestion])
 
   // Load older messages (infinite scroll up)
+  // Uses store.getState() to read current messages at call time, avoiding stale closures
   const fetchMoreMessages = useCallback(async () => {
     if (!conversationId) return
-    const convMessages = allMessages[conversationId] || []
-    if (convMessages.length === 0) return
-    if (loadingMore[conversationId]) return
-    if (hasMore[conversationId] === false) return
+    const store = useMessageStore.getState()
+    const currentMessages = store.messages[conversationId]
+    if (!currentMessages || currentMessages.length === 0) return
+    if (store.loadingMore[conversationId]) return
+    if (store.hasMore[conversationId] === false) return
 
     setLoadingMore(conversationId, true)
 
-    const oldestMessage = convMessages[0]
+    const oldestMessage = currentMessages[0]
     const { data, error } = await supabase
       .from('messages')
       .select('*')
@@ -107,7 +120,7 @@ export function useMessages(conversationId: string | null) {
     }
 
     setLoadingMore(conversationId, false)
-  }, [conversationId, allMessages, loadingMore, hasMore, setLoadingMore, prependMessages, setHasMore])
+  }, [conversationId, setLoadingMore, prependMessages, setHasMore])
 
   // Fetch when conversationId changes + evict old conversations from memory
   useEffect(() => {
@@ -296,40 +309,24 @@ export function useMessages(conversationId: string | null) {
 
     addMessage(conversationId, optimisticMsg)
 
-    setSendingMessage(true)
+    setSendingMessage(conversationId, true)
     try {
-      const headers = getAuthHeaders()
-
-      const response = await fetch(`${API_BASE}/api/messages/send`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          conversationId,
-          content: content.trim(),
-          contentType: 'text',
-          aiApproved: options?.aiApproved ?? false,
-          aiEdited: options?.aiEdited ?? false,
-          aiOriginal: options?.aiOriginal,
-        }),
+      await api.post('/api/messages/send', {
+        conversationId,
+        content: content.trim(),
+        contentType: 'text',
+        aiApproved: options?.aiApproved ?? false,
+        aiEdited: options?.aiEdited ?? false,
+        aiOriginal: options?.aiOriginal,
       })
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        // Mark optimistic message as failed
-        updateMessage(conversationId, tempId, { wa_status: 'failed' } as Partial<Message>)
-        throw new Error((err as { error?: string }).error || 'Falha ao enviar mensagem')
-      }
-
-      // On success, the realtime subscription will deliver the real message.
-      // addMessage already handles cleanup of temp messages when the real one arrives.
       clearAiSuggestion()
     } catch (err) {
-      // Update optimistic message to show failed state
       updateMessage(conversationId, tempId, { wa_status: 'failed' } as Partial<Message>)
       const message = err instanceof Error ? err.message : 'Falha ao enviar mensagem'
       toast.error(message)
     } finally {
-      setSendingMessage(false)
+      setSendingMessage(conversationId, false)
     }
   }, [conversationId, addMessage, updateMessage, setSendingMessage, clearAiSuggestion])
 
@@ -341,33 +338,22 @@ export function useMessages(conversationId: string | null) {
   ) => {
     if (!conversationId) return
 
-    setSendingMessage(true)
+    setSendingMessage(conversationId, true)
     try {
-      const headers = getAuthHeaders()
-
       const formData = new FormData()
       formData.append('conversationId', conversationId)
       formData.append('contentType', contentType)
       formData.append('file', file)
       if (caption) formData.append('caption', caption)
 
-      const response = await fetch(`${API_BASE}/api/messages/send-media`, {
-        method: 'POST',
-        headers: { Authorization: headers.Authorization },
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        throw new Error((err as { error?: string }).error || 'Falha ao enviar mídia')
-      }
+      await api.post('/api/messages/send-media', formData)
 
       clearAiSuggestion()
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Falha ao enviar mídia'
       toast.error(message)
     } finally {
-      setSendingMessage(false)
+      setSendingMessage(conversationId, false)
     }
   }, [conversationId, setSendingMessage, clearAiSuggestion])
 
@@ -386,8 +372,6 @@ export function useMessages(conversationId: string | null) {
     })
   }, [conversationId, removeMessage, sendMessage])
 
-  const hasLoaded = conversationId ? loadedConversations.has(conversationId) : false
-
   return {
     messages,
     hasLoaded,
@@ -399,7 +383,7 @@ export function useMessages(conversationId: string | null) {
     clearAiSuggestion,
     setAiSuggestion,
     fetchMoreMessages,
-    hasMore: hasMore[conversationId ?? ''] ?? true,
-    loadingMore: loadingMore[conversationId ?? ''] ?? false,
+    hasMore,
+    loadingMore,
   }
 }

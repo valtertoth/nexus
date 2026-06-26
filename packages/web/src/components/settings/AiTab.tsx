@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { supabase } from '@/lib/supabase'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import { Loader2, Save, Brain, Zap, DollarSign } from 'lucide-react'
@@ -15,6 +16,7 @@ export function AiTab() {
   const [defaultAiMode, setDefaultAiMode] = useState('dictated')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [aiSummary, setAiSummary] = useState<{
     total_suggestions: number
     total_tokens_used: number
@@ -25,41 +27,39 @@ export function AiTab() {
 
   useEffect(() => {
     if (!orgId) return
+    setLoading(true)
 
-    // Fetch org settings
-    supabase
-      .from('organizations')
-      .select('ai_monthly_token_limit, ai_tokens_used_this_month, settings')
-      .eq('id', orgId)
-      .single()
-      .then(({ data, error }) => {
-        if (error) { toast.error('Erro ao carregar configuracoes de IA'); return }
-        if (data) {
-          setTokenLimit(data.ai_monthly_token_limit)
-          setTokensUsed(data.ai_tokens_used_this_month)
-          const settings = data.settings as Record<string, unknown> | null
-          if (settings?.default_ai_mode) {
-            setDefaultAiMode(settings.default_ai_mode as string)
+    Promise.all([
+      supabase
+        .from('organizations')
+        .select('ai_monthly_token_limit, ai_tokens_used_this_month, settings')
+        .eq('id', orgId)
+        .single(),
+      supabase.rpc('ai_usage_summary', { p_org_id: orgId, p_days: 30 }),
+    ]).then(([orgRes, aiRes]) => {
+      if (orgRes.data) {
+        setTokenLimit(orgRes.data.ai_monthly_token_limit)
+        setTokensUsed(orgRes.data.ai_tokens_used_this_month)
+        const settings = orgRes.data.settings as Record<string, unknown> | null
+        if (settings?.default_ai_mode) {
+          setDefaultAiMode(settings.default_ai_mode as string)
+        }
+      }
+      if (aiRes.data) {
+        const summary = Array.isArray(aiRes.data) ? aiRes.data[0] : aiRes.data
+        setAiSummary(
+          summary as {
+            total_suggestions: number
+            total_tokens_used: number
+            estimated_cost_usd: number
           }
-        }
-      })
-
-    // Fetch AI usage for current month
-    supabase
-      .rpc('ai_usage_summary', { p_org_id: orgId, p_days: 30 })
-      .then(({ data, error }) => {
-        if (error) { toast.error('Erro ao carregar uso de IA'); return }
-        if (data) {
-          const summary = Array.isArray(data) ? data[0] : data
-          setAiSummary(
-            summary as {
-              total_suggestions: number
-              total_tokens_used: number
-              estimated_cost_usd: number
-            }
-          )
-        }
-      })
+        )
+      }
+    }).catch(() => {
+      toast.error('Erro ao carregar configuracoes de IA')
+    }).finally(() => {
+      setLoading(false)
+    })
   }, [orgId])
 
   const handleSave = async () => {
@@ -96,6 +96,30 @@ export function AiTab() {
   }
 
   const usagePercent = tokenLimit > 0 ? Math.round((tokensUsed / tokenLimit) * 100) : 0
+
+  if (loading) {
+    return (
+      <div className="max-w-xl space-y-6">
+        <div className="grid grid-cols-3 gap-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} className="border-zinc-200 shadow-none">
+              <CardContent className="p-4 text-center">
+                <Skeleton className="mx-auto h-5 w-5 rounded-full" />
+                <Skeleton className="mx-auto mt-2 h-6 w-12" />
+                <Skeleton className="mx-auto mt-1 h-3 w-20" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card className="border-zinc-200 shadow-none">
+          <CardContent className="p-5"><Skeleton className="h-16 w-full" /></CardContent>
+        </Card>
+        <Card className="border-zinc-200 shadow-none">
+          <CardContent className="p-5"><Skeleton className="h-32 w-full" /></CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-xl space-y-6">

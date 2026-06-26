@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { MessageSquare, Clock, Brain, TrendingUp, TrendingDown, LayoutDashboard } from 'lucide-react'
+import { MessageSquare, Clock, Brain, TrendingUp, TrendingDown, LayoutDashboard, AlertCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { supabase } from '@/lib/supabase'
 import { useAuthContext } from '@/components/auth/AuthProvider'
@@ -100,6 +101,8 @@ export default function Dashboard() {
   const [agents, setAgents] = useState<AgentPerf[]>([])
   const [todayConvs, setTodayConvs] = useState(0)
   const [todayMsgs, setTodayMsgs] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const orgId = profile?.org_id
 
@@ -107,38 +110,37 @@ export default function Dashboard() {
     if (!orgId) return
 
     async function load() {
-      // Daily stats (7 days)
-      const { data: daily } = await supabase.rpc('daily_conversation_stats', {
-        p_org_id: orgId,
-        p_days: 7,
-      })
-      if (daily) {
-        setDailyStats(daily as DailyStats[])
-        const today = daily[daily.length - 1] as DailyStats | undefined
-        if (today) {
-          setTodayConvs(today.new_conversations)
-          setTodayMsgs(today.total_messages)
+      setLoading(true)
+      setError(null)
+      try {
+        const [dailyRes, aiRes, agentRes] = await Promise.all([
+          supabase.rpc('daily_conversation_stats', { p_org_id: orgId, p_days: 7 }),
+          supabase.rpc('ai_usage_summary', { p_org_id: orgId, p_days: 7 }),
+          supabase.rpc('agent_performance', { p_org_id: orgId, p_days: 7 }),
+        ])
+
+        if (dailyRes.data) {
+          setDailyStats(dailyRes.data as DailyStats[])
+          const today = dailyRes.data[dailyRes.data.length - 1] as DailyStats | undefined
+          if (today) {
+            setTodayConvs(today.new_conversations)
+            setTodayMsgs(today.total_messages)
+          }
         }
-      }
 
-      // AI usage summary
-      const { data: aiData } = await supabase.rpc('ai_usage_summary', {
-        p_org_id: orgId,
-        p_days: 7,
-      })
-      if (aiData) {
-        // RPC returns array with single row
-        const summary = Array.isArray(aiData) ? aiData[0] : aiData
-        setAiSummary(summary as AiUsageSummary)
-      }
+        if (aiRes.data) {
+          const summary = Array.isArray(aiRes.data) ? aiRes.data[0] : aiRes.data
+          setAiSummary(summary as AiUsageSummary)
+        }
 
-      // Agent performance
-      const { data: agentData } = await supabase.rpc('agent_performance', {
-        p_org_id: orgId,
-        p_days: 7,
-      })
-      if (agentData) {
-        setAgents(agentData as AgentPerf[])
+        if (agentRes.data) {
+          setAgents(agentRes.data as AgentPerf[])
+        }
+      } catch (err) {
+        console.error('[Dashboard] Failed to load:', err)
+        setError('Falha ao carregar dados')
+      } finally {
+        setLoading(false)
       }
     }
 
@@ -178,6 +180,36 @@ export default function Dashboard() {
       </div>
 
       <div className="flex-1 p-6 space-y-6">
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Card key={i} className="border-zinc-200 shadow-none">
+                  <CardContent className="p-5">
+                    <Skeleton className="h-4 w-24 mb-2" />
+                    <Skeleton className="h-8 w-16" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+              <Card className="lg:col-span-2 border-zinc-200 shadow-none">
+                <CardContent className="p-5"><Skeleton className="h-64 w-full" /></CardContent>
+              </Card>
+              <Card className="border-zinc-200 shadow-none">
+                <CardContent className="p-5"><Skeleton className="h-48 w-full" /></CardContent>
+              </Card>
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Summary Cards */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
@@ -364,6 +396,8 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+        </>
+        )}
       </div>
     </div>
   )

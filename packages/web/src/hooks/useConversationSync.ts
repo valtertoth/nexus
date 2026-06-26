@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useConversationStore, type ConversationWithRelations } from '@/stores/conversationStore'
 import { useConnectionStore } from '@/stores/connectionStore'
+import { playNotificationSound, showMessageNotification } from '@/lib/notifications'
 
 const CONVERSATION_SELECT = `
   *,
@@ -131,6 +132,9 @@ export function useConversationSync() {
           async (payload) => {
             if (!mountedRef.current) return
 
+            const oldUnread = (payload.old as Record<string, unknown>)?.unread_count as number | undefined
+            const newUnread = (payload.new as Record<string, unknown>)?.unread_count as number | undefined
+
             const { data, error } = await supabase
               .from('conversations')
               .select(CONVERSATION_SELECT)
@@ -144,6 +148,20 @@ export function useConversationSync() {
               storeRef.current.update(payload.new.id as string, data as ConversationWithRelations)
             } else {
               storeRef.current.add(data as ConversationWithRelations)
+            }
+
+            // Cross-conversation notification: sound + browser notification
+            // when unread_count increases (new incoming message on another conversation)
+            if (
+              typeof newUnread === 'number' &&
+              newUnread > 0 &&
+              newUnread > (oldUnread ?? 0)
+            ) {
+              const conv = data as ConversationWithRelations
+              const contactName = conv.contact?.name || 'Contato'
+              const preview = (payload.new as Record<string, unknown>).last_message_preview as string || ''
+              playNotificationSound()
+              showMessageNotification(contactName, preview)
             }
           }
         )
@@ -173,7 +191,11 @@ export function useConversationSync() {
               console.log(`[ConversationSync] Retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`)
               retryTimeout = setTimeout(subscribe, delay)
             } else if (retryCount >= MAX_RETRIES) {
-              console.error('[ConversationSync] Max retries reached. Realtime subscription stopped.')
+              console.error('[ConversationSync] Max retries reached. Will retry in 60s.')
+              retryTimeout = setTimeout(() => {
+                retryCount = 0
+                subscribe()
+              }, 60_000)
             }
           }
 

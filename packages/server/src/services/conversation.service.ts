@@ -36,7 +36,7 @@ export async function upsertContact(
     return { ...existing, name: profileName || existing.name } as Contact
   }
 
-  // Create new
+  // Create new — handle race condition where another webhook creates the same contact
   const { data: created, error } = await supabaseAdmin
     .from('contacts')
     .insert({
@@ -51,7 +51,18 @@ export async function upsertContact(
     .select()
     .single()
 
-  if (error) throw new Error(`Failed to create contact: ${error.message}`)
+  if (error) {
+    if (error.code === '23505') {
+      const { data: raceWinner } = await supabaseAdmin
+        .from('contacts')
+        .select('*')
+        .eq('org_id', orgId)
+        .eq('wa_id', waId)
+        .single()
+      if (raceWinner) return raceWinner as Contact
+    }
+    throw new Error(`Failed to create contact: ${error.message}`)
+  }
   return created as Contact
 }
 
@@ -107,17 +118,31 @@ export async function upsertConversation(
         outcome_by: null,
       })
       .eq('id', resolved.id)
+      .eq('status', resolved.status) // optimistic lock — only reopen if status unchanged
       .select()
       .single()
 
-    if (reopenErr) throw new Error(`Failed to reopen conversation: ${reopenErr.message}`)
-    return reopened as Conversation
+    if (reopenErr) {
+      // Another webhook already reopened this or a different conversation — refetch
+      const { data: current } = await supabaseAdmin
+        .from('conversations')
+        .select('*')
+        .eq('org_id', orgId)
+        .eq('contact_id', contactId)
+        .in('status', ['open', 'pending'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+      if (current) return current as Conversation
+      // If still nothing, fall through to create new
+    } else {
+      return reopened as Conversation
+    }
   }
 
   // 3. Create brand new conversation — auto-assign if org has few users
   let assignedTo: string | null = null
 
-  // Auto-assign: if org has 1–3 users, assign to the first one
   const { data: orgUsers } = await supabaseAdmin
     .from('users')
     .select('id')
@@ -139,7 +164,22 @@ export async function upsertConversation(
     .select()
     .single()
 
-  if (error) throw new Error(`Failed to create conversation: ${error.message}`)
+  if (error) {
+    // Race: another webhook created/reopened a conversation between our SELECT and INSERT
+    if (error.code === '23505') {
+      const { data: raceWinner } = await supabaseAdmin
+        .from('conversations')
+        .select('*')
+        .eq('org_id', orgId)
+        .eq('contact_id', contactId)
+        .in('status', ['open', 'pending'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+      if (raceWinner) return raceWinner as Conversation
+    }
+    throw new Error(`Failed to create conversation: ${error.message}`)
+  }
   return created as Conversation
 }
 

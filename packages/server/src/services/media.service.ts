@@ -42,6 +42,7 @@ export async function downloadAndStore(
   // 3. Download the file
   const response = await fetch(mediaInfo.url, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(30_000),
   })
 
   if (!response.ok) {
