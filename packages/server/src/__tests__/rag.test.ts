@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 
-// Mock supabase and OpenAI before imports
+// Mock supabase before imports
 vi.mock('../lib/supabase.js', () => ({
   supabaseAdmin: {
     rpc: vi.fn(),
@@ -12,17 +12,14 @@ vi.mock('../lib/supabase.js', () => ({
   },
 }))
 
-vi.mock('openai', () => {
-  return {
-    default: class {
-      embeddings = {
-        create: vi.fn().mockResolvedValue({
-          data: [{ embedding: new Array(1536).fill(0.1) }],
-        }),
-      }
-    },
-  }
-})
+// Mock @huggingface/transformers
+vi.mock('@huggingface/transformers', () => ({
+  pipeline: vi.fn().mockResolvedValue(
+    vi.fn().mockResolvedValue({
+      data: new Float32Array(384).fill(0.1),
+    })
+  ),
+}))
 
 import { chunkText, estimateTokens } from '../services/embedding.service.js'
 
@@ -42,9 +39,8 @@ describe('chunkText', () => {
   })
 
   it('should split long text into multiple chunks', () => {
-    // Create text longer than maxTokens * 4 chars
     const paragraph = 'Este é um parágrafo de teste com conteúdo suficiente. '
-    const text = paragraph.repeat(50) // ~2700 chars > 500 tokens * 4 = 2000 chars
+    const text = paragraph.repeat(50)
     const chunks = chunkText(text, 500, 50)
     expect(chunks.length).toBeGreaterThan(1)
   })
@@ -58,7 +54,7 @@ describe('chunkText', () => {
       'Terceiro parágrafo final.',
     ].join('\n')
 
-    const chunks = chunkText(text, 1000) // High limit to keep all in one
+    const chunks = chunkText(text, 1000)
     expect(chunks).toHaveLength(1)
     expect(chunks[0]).toContain('Primeiro')
     expect(chunks[0]).toContain('Segundo')
@@ -66,12 +62,12 @@ describe('chunkText', () => {
   })
 
   it('should split by paragraphs when text exceeds max', () => {
-    const para1 = 'A '.repeat(300) // 600 chars
-    const para2 = 'B '.repeat(300) // 600 chars
-    const para3 = 'C '.repeat(300) // 600 chars
+    const para1 = 'A '.repeat(300)
+    const para2 = 'B '.repeat(300)
+    const para3 = 'C '.repeat(300)
     const text = `${para1}\n\n${para2}\n\n${para3}`
 
-    const chunks = chunkText(text, 200, 0) // maxTokens=200 → 800 chars
+    const chunks = chunkText(text, 200, 0)
     expect(chunks.length).toBeGreaterThan(1)
   })
 
@@ -91,11 +87,10 @@ describe('chunkText', () => {
 
   it('should handle overlap between chunks', () => {
     const sentence = 'Esta é uma frase de teste com palavras suficientes. '
-    const text = sentence.repeat(40) // ~2120 chars
+    const text = sentence.repeat(40)
     const chunksWithOverlap = chunkText(text, 200, 50)
     const chunksNoOverlap = chunkText(text, 200, 0)
 
-    // With overlap, we may have same or more chunks
     expect(chunksWithOverlap.length).toBeGreaterThanOrEqual(chunksNoOverlap.length)
   })
 })
@@ -104,10 +99,9 @@ describe('chunkText', () => {
 
 describe('estimateTokens', () => {
   it('should estimate tokens based on char count', () => {
-    // 1 token ≈ 4 chars
     expect(estimateTokens('abcd')).toBe(1)
     expect(estimateTokens('abcdefgh')).toBe(2)
-    expect(estimateTokens('a')).toBe(1) // ceil(1/4) = 1
+    expect(estimateTokens('a')).toBe(1)
   })
 
   it('should handle empty string', () => {
@@ -125,16 +119,16 @@ describe('estimateTokens', () => {
 // --- Embedding dimensions (mocked) ---
 
 describe('generateEmbedding (mocked)', () => {
-  it('should return 1536-dimensional embedding', async () => {
+  it('should return 384-dimensional embedding', async () => {
     const { generateEmbedding } = await import('../services/embedding.service.js')
     const embedding = await generateEmbedding('Teste de embedding')
-    expect(embedding).toHaveLength(1536)
+    expect(embedding).toHaveLength(384)
   })
 
   it('should return zero vector for empty text', async () => {
     const { generateEmbedding } = await import('../services/embedding.service.js')
     const embedding = await generateEmbedding('')
-    expect(embedding).toHaveLength(1536)
+    expect(embedding).toHaveLength(384)
     expect(embedding.every((v) => v === 0)).toBe(true)
   })
 })

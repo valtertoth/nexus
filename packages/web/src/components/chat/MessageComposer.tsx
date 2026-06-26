@@ -36,9 +36,20 @@ export function MessageComposer({
 }: MessageComposerProps) {
   const [value, setValue] = useState(initialValue)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Manage object URL lifecycle: create when pendingFile changes, revoke on cleanup
+  useEffect(() => {
+    if (pendingFile && pendingFile.type.startsWith('image/')) {
+      const url = URL.createObjectURL(pendingFile)
+      setPreviewUrl(url)
+      return () => URL.revokeObjectURL(url)
+    }
+    setPreviewUrl(null)
+  }, [pendingFile])
 
   // Sync when initialValue changes (e.g. AI edit)
   useEffect(() => {
@@ -111,9 +122,9 @@ export function MessageComposer({
       {/* File Preview Bar */}
       {pendingFile && (
         <div className="flex items-center gap-3 px-4 py-2 bg-zinc-50 border-t border-zinc-100">
-          {pendingFile.type.startsWith('image/') ? (
+          {previewUrl ? (
             <img
-              src={URL.createObjectURL(pendingFile)}
+              src={previewUrl}
               alt=""
               className="w-12 h-12 rounded-lg object-cover"
             />

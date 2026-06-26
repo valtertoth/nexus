@@ -1,9 +1,20 @@
 import { Hono } from 'hono'
-import { authMiddleware, type UserRole } from '../middleware/auth.js'
+import { createHash } from 'node:crypto'
+import { z } from 'zod'
+import { authMiddleware, requireRole, type UserRole } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { recordOutcome, getPendingConversions, markConversionSent, getConversionSummary } from '../services/conversion.service.js'
 import { analyzeConversation, getTopInsightsForSector } from '../services/conversation_intelligence.service.js'
+
+const outcomeSchema = z.object({
+  conversationId: z.string().uuid(),
+  outcome: z.enum(['converted', 'lost', 'problem']),
+  value: z.number().min(0).optional(),
+  currency: z.string().max(3).optional(),
+  reason: z.string().max(500).optional(),
+  product: z.string().max(200).optional(),
+})
 
 type AuthVars = { Variables: { userId: string; orgId: string; userRole: UserRole } }
 
@@ -28,28 +39,12 @@ intelligence.post('/outcome', async (c) => {
   const userId = c.get('userId')
   const orgId = c.get('orgId')
 
-  const body = await c.req.json<{
-    conversationId: string
-    outcome: 'converted' | 'lost' | 'problem'
-    value?: number
-    currency?: string
-    reason?: string
-    product?: string
-  }>()
-
-  const { conversationId, outcome, value, currency, reason, product } = body
-
-  if (!conversationId || !outcome) {
-    return c.json({ error: 'conversationId e outcome são obrigatórios' }, 400)
+  const raw = await c.req.json()
+  const parsed = outcomeSchema.safeParse(raw)
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.issues[0].message }, 400)
   }
-
-  if (!['converted', 'lost', 'problem'].includes(outcome)) {
-    return c.json({ error: 'outcome deve ser: converted, lost ou problem' }, 400)
-  }
-
-  if (outcome === 'converted' && value !== undefined && value < 0) {
-    return c.json({ error: 'value deve ser um número positivo' }, 400)
-  }
+  const { conversationId, outcome, value, currency, reason, product } = parsed.data
 
   try {
     // Verify conversation exists and belongs to this org before recording
@@ -149,18 +144,18 @@ intelligence.post('/analyze/:conversationId', async (c) => {
 })
 
 // POST /api/intelligence/api-key/regenerate — Generate or regenerate API key
-intelligence.post('/api-key/regenerate', async (c) => {
+intelligence.post('/api-key/regenerate', requireRole('admin'), async (c) => {
   const orgId = c.get('orgId')
 
-  // Generate a new key: nxk_ prefix + 32 random hex bytes
   const bytes = new Uint8Array(32)
   crypto.getRandomValues(bytes)
   const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
   const newKey = `nxk_${hex}`
+  const keyHash = createHash('sha256').update(newKey).digest('hex')
 
   const { error } = await supabaseAdmin
     .from('organizations')
-    .update({ nexus_api_key: newKey })
+    .update({ nexus_api_key_hash: keyHash })
     .eq('id', orgId)
 
   if (error) return c.json({ error: error.message }, 500)
@@ -175,10 +170,11 @@ const verifyIntelligenceApiKey = async (c: Parameters<typeof authMiddleware>[0])
   const apiKey = c.req.header('x-nexus-api-key')
   if (!apiKey) return false
 
+  const keyHash = createHash('sha256').update(apiKey).digest('hex')
   const { data } = await supabaseAdmin
     .from('organizations')
     .select('id')
-    .eq('nexus_api_key', apiKey)
+    .eq('nexus_api_key_hash', keyHash)
     .single()
 
   if (data) {

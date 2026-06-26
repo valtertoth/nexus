@@ -3,12 +3,12 @@ import { FileText, FileSpreadsheet, File, Trash2, RefreshCw, Loader2 } from 'luc
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { supabase, getAuthHeaders } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import type { KnowledgeDocument } from '@nexus/shared'
 import { formatDistanceToNow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface DocumentListProps {
   orgId: string
@@ -82,16 +82,10 @@ export function DocumentList({ orgId, sectorId, refreshTrigger }: DocumentListPr
   const handleDelete = useCallback(async (documentId: string) => {
     setActionLoading(documentId)
     try {
-      const headers = getAuthHeaders()
-
-      const res = await fetch(`${API_BASE}/api/knowledge/documents/${documentId}`, {
-        method: 'DELETE',
-        headers,
-      })
-
-      if (res.ok) {
-        setDocuments((prev) => prev.filter((d) => d.id !== documentId))
-      }
+      await api.delete(`/api/knowledge/documents/${documentId}`)
+      setDocuments((prev) => prev.filter((d) => d.id !== documentId))
+    } catch {
+      // silent
     } finally {
       setActionLoading(null)
     }
@@ -100,18 +94,14 @@ export function DocumentList({ orgId, sectorId, refreshTrigger }: DocumentListPr
   const handleReprocess = useCallback(async (documentId: string) => {
     setActionLoading(documentId)
     try {
-      const headers = getAuthHeaders()
-
-      await fetch(`${API_BASE}/api/knowledge/documents/${documentId}/reprocess`, {
-        method: 'POST',
-        headers,
-      })
-
+      await api.post(`/api/knowledge/documents/${documentId}/reprocess`)
       setDocuments((prev) =>
         prev.map((d) =>
           d.id === documentId ? { ...d, status: 'processing' as const, chunks_count: 0 } : d
         )
       )
+    } catch {
+      // silent
     } finally {
       setActionLoading(null)
     }

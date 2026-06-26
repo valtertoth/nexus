@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { authMiddleware } from '../middleware/auth.js'
+import { authMiddleware, requireRole } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { requireUUID } from '../lib/validate.js'
@@ -13,7 +13,7 @@ knowledge.use('*', authMiddleware)
 knowledge.use('*', apiRateLimit)
 
 // POST /api/knowledge/process — Trigger document ingestion
-knowledge.post('/process', async (c) => {
+knowledge.post('/process', requireRole('admin'), async (c) => {
   const orgId = c.get('orgId')
   const { documentId } = await c.req.json<{ documentId: string }>()
 
@@ -61,7 +61,7 @@ knowledge.get('/sectors/:sectorId/documents', async (c) => {
 })
 
 // DELETE /api/knowledge/documents/:documentId — Delete document + chunks + file
-knowledge.delete('/documents/:documentId', async (c) => {
+knowledge.delete('/documents/:documentId', requireRole('admin'), async (c) => {
   const orgId = c.get('orgId')
   const documentId = requireUUID(c.req.param('documentId'), 'documentId')
 
@@ -100,7 +100,7 @@ knowledge.delete('/documents/:documentId', async (c) => {
 })
 
 // POST /api/knowledge/documents/:documentId/reprocess — Clear chunks and re-ingest
-knowledge.post('/documents/:documentId/reprocess', async (c) => {
+knowledge.post('/documents/:documentId/reprocess', requireRole('admin'), async (c) => {
   const orgId = c.get('orgId')
   const documentId = requireUUID(c.req.param('documentId'), 'documentId')
 

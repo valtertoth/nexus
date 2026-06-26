@@ -1,10 +1,9 @@
 import { useCallback, useState, useRef } from 'react'
 import { Upload, FileText, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { supabase, getAuthHeaders } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface FileUpload {
   file: File
@@ -55,10 +54,6 @@ export function DocumentUploader({ orgId, sectorId, onUploadComplete }: Document
   }, [])
 
   const uploadAll = useCallback(async () => {
-    const headers = getAuthHeaders()
-    const token = headers.Authorization?.replace('Bearer ', '')
-    if (!token) return
-
     for (let i = 0; i < files.length; i++) {
       const upload = files[i]
       if (upload.status !== 'pending') continue
@@ -106,11 +101,7 @@ export function DocumentUploader({ orgId, sectorId, onUploadComplete }: Document
         )
 
         // 3. Trigger ingestion
-        await fetch(`${API_BASE}/api/knowledge/process`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ documentId: doc.id }),
-        })
+        await api.post('/api/knowledge/process', { documentId: doc.id })
 
         setFiles((prev) =>
           prev.map((f, idx) => (idx === i ? { ...f, status: 'done' as const, progress: 100 } : f))

@@ -1,9 +1,7 @@
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { getAuthHeaders } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import type { ConversationOutcome } from '@nexus/shared'
-
-const SERVER_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_SERVER_URL || 'http://localhost:3001'
 
 export interface OutcomeData {
   outcome: ConversationOutcome
@@ -20,18 +18,7 @@ export function useConversationOutcome() {
     async (conversationId: string, data: OutcomeData): Promise<boolean> => {
       setSubmitting(true)
       try {
-        const headers = getAuthHeaders()
-
-        const res = await fetch(`${SERVER_URL}/api/intelligence/outcome`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ conversationId, ...data }),
-        })
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: 'Erro desconhecido' }))
-          throw new Error(err.error || `HTTP ${res.status}`)
-        }
+        await api.post('/api/intelligence/outcome', { conversationId, ...data })
 
         const outcomeLabel =
           data.outcome === 'converted'

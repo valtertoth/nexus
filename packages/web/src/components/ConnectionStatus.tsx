@@ -1,44 +1,78 @@
 import { useState, useEffect, useRef } from 'react'
-import { Wifi, WifiOff } from 'lucide-react'
+import { Wifi, WifiOff, ServerOff } from 'lucide-react'
 import { useConnectionStore } from '@/stores/connectionStore'
 
 export function ConnectionStatus() {
   const [online, setOnline] = useState(navigator.onLine)
   const [showReconnected, setShowReconnected] = useState(false)
-  const [showDisconnected, setShowDisconnected] = useState(false)
+  const [showRealtimeDisconnected, setShowRealtimeDisconnected] = useState(false)
+  const [showServerDisconnected, setShowServerDisconnected] = useState(false)
   const realtimeConnected = useConnectionStore((s) => s.realtimeConnected)
-  const hasEverConnectedRef = useRef(false)
-  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const serverConnected = useConnectionStore((s) => s.serverConnected)
+  const hasEverRealtimeConnectedRef = useRef(false)
+  const hasEverServerConnectedRef = useRef(false)
+  const realtimeDisconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const serverDisconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Track first successful connection and debounce disconnection display
+  // Track realtime connection and debounce disconnection display
   useEffect(() => {
     if (realtimeConnected) {
-      hasEverConnectedRef.current = true
-      // Clear any pending disconnect timer
-      if (disconnectTimerRef.current) {
-        clearTimeout(disconnectTimerRef.current)
-        disconnectTimerRef.current = null
+      hasEverRealtimeConnectedRef.current = true
+      if (realtimeDisconnectTimerRef.current) {
+        clearTimeout(realtimeDisconnectTimerRef.current)
+        realtimeDisconnectTimerRef.current = null
       }
-      // If we were showing disconnected, show reconnected briefly
-      if (showDisconnected) {
-        setShowDisconnected(false)
-        setShowReconnected(true)
-        setTimeout(() => setShowReconnected(false), 3000)
+      if (showRealtimeDisconnected) {
+        setShowRealtimeDisconnected(false)
+        // Only show reconnected if server is also connected
+        if (serverConnected) {
+          setShowReconnected(true)
+          setTimeout(() => setShowReconnected(false), 3000)
+        }
       }
-    } else if (hasEverConnectedRef.current && !disconnectTimerRef.current) {
-      // Only show after 3s of sustained disconnection (avoid flickers)
-      disconnectTimerRef.current = setTimeout(() => {
-        setShowDisconnected(true)
-        disconnectTimerRef.current = null
+    } else if (hasEverRealtimeConnectedRef.current && !realtimeDisconnectTimerRef.current) {
+      realtimeDisconnectTimerRef.current = setTimeout(() => {
+        setShowRealtimeDisconnected(true)
+        realtimeDisconnectTimerRef.current = null
       }, 3000)
     }
 
     return () => {
-      if (disconnectTimerRef.current) {
-        clearTimeout(disconnectTimerRef.current)
+      if (realtimeDisconnectTimerRef.current) {
+        clearTimeout(realtimeDisconnectTimerRef.current)
       }
     }
-  }, [realtimeConnected, showDisconnected])
+  }, [realtimeConnected, showRealtimeDisconnected, serverConnected])
+
+  // Track server connection and debounce disconnection display
+  useEffect(() => {
+    if (serverConnected) {
+      hasEverServerConnectedRef.current = true
+      if (serverDisconnectTimerRef.current) {
+        clearTimeout(serverDisconnectTimerRef.current)
+        serverDisconnectTimerRef.current = null
+      }
+      if (showServerDisconnected) {
+        setShowServerDisconnected(false)
+        // Only show reconnected if realtime is also connected
+        if (realtimeConnected) {
+          setShowReconnected(true)
+          setTimeout(() => setShowReconnected(false), 3000)
+        }
+      }
+    } else if (hasEverServerConnectedRef.current && !serverDisconnectTimerRef.current) {
+      serverDisconnectTimerRef.current = setTimeout(() => {
+        setShowServerDisconnected(true)
+        serverDisconnectTimerRef.current = null
+      }, 3000)
+    }
+
+    return () => {
+      if (serverDisconnectTimerRef.current) {
+        clearTimeout(serverDisconnectTimerRef.current)
+      }
+    }
+  }, [serverConnected, showServerDisconnected, realtimeConnected])
 
   useEffect(() => {
     const handleOnline = () => {
@@ -60,7 +94,7 @@ export function ConnectionStatus() {
     }
   }, [])
 
-  // Browser offline
+  // Browser offline (highest priority)
   if (!online) {
     return (
       <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 py-1.5 text-xs font-medium bg-red-500 text-white transition-all duration-300">
@@ -70,8 +104,18 @@ export function ConnectionStatus() {
     )
   }
 
-  // Realtime disconnected for >3s (after having connected at least once)
-  if (showDisconnected) {
+  // Server disconnected (red — takes priority over realtime)
+  if (showServerDisconnected) {
+    return (
+      <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 py-1.5 text-xs font-medium bg-red-500 text-white transition-all duration-300">
+        <ServerOff className="w-3.5 h-3.5" />
+        Servidor indisponível — tentando reconectar...
+      </div>
+    )
+  }
+
+  // Realtime disconnected for >3s (amber — server is up but realtime dropped)
+  if (showRealtimeDisconnected) {
     return (
       <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 py-1.5 text-xs font-medium bg-amber-500 text-white transition-all duration-300">
         <WifiOff className="w-3.5 h-3.5" />

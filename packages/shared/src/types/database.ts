@@ -125,6 +125,10 @@ export interface Contact {
   utm_campaign_id: string | null
   utm_channel: UtmChannel | null
   attributed_at: string | null
+  // Click IDs (migration 016)
+  fbc: string | null
+  fbp: string | null
+  gclid: string | null
 }
 
 export interface ContactInsert {
@@ -148,6 +152,9 @@ export interface ContactInsert {
   utm_campaign_id?: string
   utm_channel?: UtmChannel
   attributed_at?: string
+  fbc?: string
+  fbp?: string
+  gclid?: string
 }
 
 export interface ContactUpdate extends Partial<Omit<ContactInsert, 'org_id' | 'wa_id'>> {}
@@ -311,6 +318,17 @@ export interface ConversionEvent {
   google_status: CAPIStatus
   google_sent_at: string | null
   google_error: string | null
+  // Click IDs (migration 016)
+  attr_fbc: string | null
+  attr_fbp: string | null
+  attr_gclid: string | null
+  // CAPI production fields (migration 021)
+  action_source: string
+  event_source_url: string | null
+  event_id: string | null
+  google_conversion_action: string | null
+  meta_retry_count: number
+  google_retry_count: number
   created_at: string
   updated_at: string
 }
@@ -332,6 +350,13 @@ export interface ConversionEventInsert {
   contact_wa_id?: string
   contact_phone?: string
   contact_email?: string
+  attr_fbc?: string
+  attr_fbp?: string
+  attr_gclid?: string
+  action_source?: string
+  event_source_url?: string
+  event_id?: string
+  google_conversion_action?: string
 }
 
 export type SenderType = 'contact' | 'agent' | 'ai' | 'system'
@@ -561,4 +586,141 @@ export interface Quote {
   status: QuoteStatus
   created_at: string
   updated_at: string
+}
+
+// ─── Org Brain Directives ────────────────────────────────────────────────────
+
+export interface OrgBrainDirective {
+  id: string
+  org_id: string
+  category: string
+  title: string
+  description: string | null
+  content: string
+  source_reference: string | null
+  priority: number
+  applies_to_sectors: string[]
+  is_active: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface OrgBrainDirectiveInsert {
+  org_id: string
+  category: string
+  title: string
+  description?: string
+  content: string
+  source_reference?: string
+  priority?: number
+  applies_to_sectors?: string[]
+  is_active?: boolean
+  created_by?: string
+}
+
+export interface OrgBrainDirectiveUpdate extends Partial<Omit<OrgBrainDirectiveInsert, 'org_id'>> {}
+
+// ─── Conversation Snapshots ──────────────────────────────────────────────────
+
+export interface ConversationSnapshot {
+  id: string
+  org_id: string
+  conversation_id: string
+  contact_id: string
+  assigned_to: string | null
+  detected_intent: string | null
+  detected_product: string | null
+  detected_urgency: string | null
+  detected_temperature: string | null
+  detected_sentiment: string | null
+  detected_stage: string | null
+  seller_approach_score: number | null
+  seller_approach_notes: string | null
+  seller_response_avg_secs: number | null
+  seller_messages_count: number | null
+  contact_messages_count: number | null
+  buying_signals: string[]
+  risk_signals: string[]
+  opportunity_signals: string[]
+  recommended_action: string | null
+  recommended_priority: string | null
+  message_count_at_snapshot: number | null
+  ai_model: string | null
+  ai_tokens_used: number | null
+  created_at: string
+}
+
+// ─── Quote Settings ──────────────────────────────────────────────────────────
+
+export interface QuoteSettings {
+  id: string
+  org_id: string
+  default_markup: number | null
+  logo_url: string | null
+  footer_text: string | null
+  payment_options: string[]
+  visible_fields: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface QuoteSettingsUpdate {
+  default_markup?: number
+  logo_url?: string
+  footer_text?: string
+  payment_options?: string[]
+  visible_fields?: Record<string, unknown>
+}
+
+// ─── Webhook Queue ───────────────────────────────────────────────────────────
+
+export type WebhookQueueStatus = 'pending' | 'processing' | 'done' | 'failed'
+
+export interface WebhookQueueEntry {
+  id: string
+  wa_message_id: string
+  payload: Record<string, unknown>
+  status: WebhookQueueStatus
+  attempts: number
+  max_attempts: number
+  error: string | null
+  created_at: string
+  processed_at: string | null
+  next_retry_at: string | null
+}
+
+// ─── Pending Attributions ────────────────────────────────────────────────────
+
+export interface PendingAttribution {
+  id: string
+  org_id: string
+  wa_id: string
+  utm_source: string | null
+  utm_medium: string | null
+  utm_campaign: string | null
+  utm_content: string | null
+  utm_term: string | null
+  utm_ad_id: string | null
+  utm_adset_id: string | null
+  utm_campaign_id: string | null
+  utm_channel: string | null
+  received_at: string
+}
+
+// ─── Conversation Analysis Jobs ──────────────────────────────────────────────
+
+export type AnalysisJobStatus = 'pending' | 'running' | 'completed' | 'failed'
+
+export interface ConversationAnalysisJob {
+  id: string
+  org_id: string
+  conversation_id: string
+  status: AnalysisJobStatus
+  triggered_at: string
+  started_at: string | null
+  completed_at: string | null
+  insights_count: number
+  error_message: string | null
+  retry_count: number
 }

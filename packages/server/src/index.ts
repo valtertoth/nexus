@@ -1,11 +1,14 @@
 import './env.js'
 import { serve } from '@hono/node-server'
+import { serveStatic } from '@hono/node-server/serve-static'
 import type { ServerType } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
 import { bodyLimit } from 'hono/body-limit'
+import { existsSync } from 'fs'
+import { resolve } from 'path'
 import { supabaseAdmin } from './lib/supabase.js'
 import { metrics } from './lib/metrics.js'
 
@@ -20,8 +23,6 @@ import whatsappConnectionRoutes from './routes/whatsapp-connection.js'
 import brainRoutes from './routes/brain.js'
 import ecosystemRoutes from './routes/ecosystem.js'
 import quoteRoutes from './routes/quotes.js'
-// baileysService no longer used for health checks (Cloud API only)
-// import { baileysService } from './services/baileys.service.js'
 
 // --- Crash Protection ---
 process.on('unhandledRejection', (reason, promise) => {
@@ -93,7 +94,8 @@ app.use('*', async (c, next) => {
   c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   c.res.headers.delete('X-Powered-By')
   if (process.env.NODE_ENV === 'production') {
-    c.res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    c.res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload')
+    c.res.headers.set('Content-Security-Policy', "upgrade-insecure-requests")
   }
 })
 
@@ -189,6 +191,14 @@ app.route('/api/whatsapp', whatsappConnectionRoutes)
 app.route('/api/brain', brainRoutes)
 app.route('/api/ecosystem', ecosystemRoutes)
 app.route('/api/quotes', quoteRoutes)
+
+// --- Static file serving (production: frontend build) ---
+const webDistPath = resolve(process.cwd(), 'web-dist')
+if (process.env.NODE_ENV === 'production' && existsSync(webDistPath)) {
+  console.log(`[Nexus] Serving frontend from ${webDistPath}`)
+  app.use('*', serveStatic({ root: './web-dist' }))
+  app.get('*', serveStatic({ root: './web-dist', path: 'index.html' }))
+}
 
 // Global error handler
 app.onError((err, c) => {

@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { supabase, getAuthHeaders } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import {
   Loader2,
@@ -20,7 +21,6 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 export function IntegrationsTab() {
   const { profile } = useAuthContext()
@@ -65,16 +65,7 @@ export function IntegrationsTab() {
 
     setRegenerating(true)
     try {
-      const headers = getAuthHeaders()
-
-      const res = await fetch(`${API_BASE}/api/intelligence/api-key/regenerate`, {
-        method: 'POST',
-        headers,
-      })
-
-      if (!res.ok) throw new Error('Falha ao regenerar')
-
-      const result = await res.json()
+      const result = await api.post<{ apiKey: string }>('/api/intelligence/api-key/regenerate')
       setApiKey(result.apiKey)
       setHasKey(true)
       setIsFullKey(true)

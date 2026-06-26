@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useMessages } from '@/hooks/useMessages'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import { supabase } from '@/lib/supabase'
@@ -65,9 +66,20 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
   const [composerInitialValue, setComposerInitialValue] = useState('')
   const [quoteOpen, setQuoteOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const prevScrollHeightRef = useRef<number>(0)
+  const isNearBottomRef = useRef(true)
   const prevMessageCountRef = useRef<number>(0)
+  const prevScrollHeightRef = useRef<number>(0)
   const aiModeFetchedRef = useRef<string | null>(null)
+
+  // Virtualizer — only renders visible messages + overscan
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 72,
+    overscan: 15,
+    gap: 4,
+    getItemKey: (index) => messages[index]?.id ?? index,
+  })
 
   // Load AI mode from DB ONCE per profile (not per conversation switch)
   useEffect(() => {
@@ -86,41 +98,54 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
   // Auto-scroll to bottom when NEW messages arrive (appended at end)
   // Preserve scroll position when OLDER messages are prepended at top
   useEffect(() => {
-    if (!scrollRef.current) return
+    const el = scrollRef.current
+    if (!el) return
     const prevCount = prevMessageCountRef.current
     const currentCount = messages.length
 
-    if (currentCount > prevCount && prevCount > 0 && prevScrollHeightRef.current > 0) {
-      // Messages were prepended (loaded older): preserve scroll position
-      const newScrollHeight = scrollRef.current.scrollHeight
-      const scrollDiff = newScrollHeight - prevScrollHeightRef.current
-      if (scrollDiff > 0 && scrollRef.current.scrollTop < 200) {
-        scrollRef.current.scrollTop = scrollDiff
+    if (currentCount > prevCount && prevCount > 0) {
+      if (isNearBottomRef.current) {
+        // New message appended while near bottom — scroll to end
+        requestAnimationFrame(() => {
+          virtualizer.scrollToIndex(currentCount - 1, { align: 'end' })
+        })
       } else {
-        // Messages appended (new message): scroll to bottom
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+        // Messages prepended (loaded older) — preserve scroll position
+        const newScrollHeight = el.scrollHeight
+        const scrollDiff = newScrollHeight - prevScrollHeightRef.current
+        if (scrollDiff > 0) {
+          el.scrollTop += scrollDiff
+        }
       }
-    } else {
-      // Initial load or conversation switch: scroll to bottom
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    } else if (currentCount > 0) {
+      // Initial load or conversation switch — scroll to bottom
+      requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(currentCount - 1, { align: 'end' })
+      })
     }
 
     prevMessageCountRef.current = currentCount
-    prevScrollHeightRef.current = scrollRef.current.scrollHeight
-  }, [messages.length])
+    prevScrollHeightRef.current = el.scrollHeight
+  }, [messages.length, virtualizer])
 
-  // Reset refs when conversation changes
+  // Reset state when conversation changes
   useEffect(() => {
     prevMessageCountRef.current = 0
     prevScrollHeightRef.current = 0
+    isNearBottomRef.current = true
   }, [conversation.id])
 
-  // Infinite scroll: detect when user scrolls near top
+  // Track scroll position + infinite scroll up
   const handleScroll = useCallback(() => {
-    if (!scrollRef.current) return
-    if (scrollRef.current.scrollTop < 100) {
-      // Save scroll height before fetching so we can preserve position
-      prevScrollHeightRef.current = scrollRef.current.scrollHeight
+    const el = scrollRef.current
+    if (!el) return
+
+    // Track if user is near the bottom (for auto-scroll decisions)
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 150
+
+    // Infinite scroll: load older messages when near top
+    if (el.scrollTop < 100) {
+      prevScrollHeightRef.current = el.scrollHeight
       fetchMoreMessages()
     }
   }, [fetchMoreMessages])
@@ -175,7 +200,7 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
           onOpenQuote={() => setQuoteOpen(true)}
         />
 
-        {/* Messages */}
+        {/* Messages — virtualized for performance */}
         <div className="flex-1 overflow-y-auto bg-zinc-100" ref={scrollRef} onScroll={handleScroll}>
           {!hasLoaded ? (
             <MessageSkeletons />
@@ -184,7 +209,7 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
               <p className="text-xs text-zinc-400">Início da conversa</p>
             </div>
           ) : (
-            <div className="px-4 py-4 space-y-1">
+            <div className="px-4 py-4">
               {loadingMore && (
                 <div className="flex justify-center py-2">
                   <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
@@ -193,9 +218,24 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
               {!hasMore && messages.length > 0 && (
                 <p className="text-center text-xs text-zinc-400 py-2">Início da conversa</p>
               )}
-              {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} onRetry={retryMessage} />
-              ))}
+              <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+                {virtualizer.getVirtualItems().map((virtualRow) => (
+                  <div
+                    key={messages[virtualRow.index].id}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <MessageBubble message={messages[virtualRow.index]} onRetry={retryMessage} />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

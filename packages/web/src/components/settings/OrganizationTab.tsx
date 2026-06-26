@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { supabase } from '@/lib/supabase'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import { Loader2, Save } from 'lucide-react'
+import { toast } from 'sonner'
 
 export function OrganizationTab() {
   const { profile } = useAuthContext()
@@ -23,7 +24,8 @@ export function OrganizationTab() {
       .select('name, slug, plan')
       .eq('id', profile.org_id)
       .single()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) { toast.error('Erro ao carregar dados da organizacao'); return }
         if (data) {
           setName(data.name)
           setSlug(data.slug)
@@ -37,12 +39,19 @@ export function OrganizationTab() {
     setSaving(true)
     setSaved(false)
 
-    await supabase
+    const { error } = await supabase
       .from('organizations')
       .update({ name, slug })
       .eq('id', profile.org_id)
 
     setSaving(false)
+
+    if (error) {
+      toast.error('Erro ao salvar dados da organizacao')
+      return
+    }
+
+    toast.success('Organizacao salva')
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }

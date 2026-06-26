@@ -1,12 +1,1 @@
-{
-  "version": "0.0.1",
-  "configurations": [
-    {
-      "name": "nexus-web",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--workspace=packages/web"],
-      "port": 5173,
-      "autoPort": true
-    }
-  ]
-}
+{"version":"0.0.1","configurations":[{"name":"markup-preview","runtimeExecutable":"node","runtimeArgs":[".claude/preview-markup/serve.cjs"],"port":3456},{"name":"nexus-web","runtimeExecutable":"npm","runtimeArgs":["run","dev","--workspace=packages/web"],"port":5173},{"name":"nexus-prod","runtimeExecutable":"node","runtimeArgs":[".claude/prod-proxy/serve.cjs"],"port":3999}]}

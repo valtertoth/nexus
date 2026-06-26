@@ -1,27 +1,45 @@
+# Stage 1: Build frontend
+FROM node:20-slim AS web-builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY packages/web/package.json packages/web/
+COPY packages/shared/package.json packages/shared/
+COPY packages/server/package.json packages/server/
+
+RUN npm ci && npm cache clean --force
+
+COPY packages/shared/ packages/shared/
+COPY packages/web/ packages/web/
+
+ENV VITE_API_URL=""
+ENV VITE_SUPABASE_URL=https://rutzeiqywwfjpeizikpw.supabase.co
+ENV VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1dHplaXF5d3dmanBlaXppa3B3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MjQ1ODQsImV4cCI6MjA5MDIwMDU4NH0.0Rr1HcfiadcRJOzYMbFwsv3pRyJgcRIkEkMsQvJOG74
+
+RUN npm run build -w @nexus/web
+
+# Stage 2: Production server
 FROM node:20-slim
 
 WORKDIR /app
 
-# Copy package files first for better layer caching
+ENV NODE_ENV=production
+
 COPY package.json package-lock.json ./
 COPY packages/server/package.json packages/server/
 COPY packages/shared/package.json packages/shared/
 COPY packages/web/package.json packages/web/
 
-# Install ALL dependencies (including devDeps — tsx is needed at runtime)
-# NODE_ENV must NOT be production here so devDeps are installed
-RUN npm ci && \
-    npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Copy source code (only server and shared — web is not needed)
 COPY packages/shared/ packages/shared/
 COPY packages/server/ packages/server/
 
-# Create non-root user for security
-RUN addgroup --system nexus && adduser --system --ingroup nexus nexus
+# Copy frontend build from stage 1
+COPY --from=web-builder /app/packages/web/dist/ ./web-dist/
 
-# Create auth directory with correct permissions (for Baileys)
-RUN mkdir -p /app/.baileys-auth && chown nexus:nexus /app/.baileys-auth
+RUN addgroup --system nexus && adduser --system --ingroup nexus nexus
 
 USER nexus
 
@@ -29,5 +47,7 @@ ENV PORT=3001
 
 EXPOSE 3001
 
-# Run with tsx since shared package exports raw TypeScript
-CMD ["npx", "tsx", "packages/server/src/index.ts"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://localhost:3001/health').then(r=>{if(!r.ok)throw r.status}).catch(()=>process.exit(1))"
+
+CMD ["node", "--max-old-space-size=512", "node_modules/.bin/tsx", "packages/server/src/index.ts"]

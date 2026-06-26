@@ -36,6 +36,18 @@ function authError(status: 401 | 403, code: string, message: string) {
   return { error: { code, message }, status }
 }
 
+// ── Role gate ─────────────────────────────────────────────────────────────
+
+export function requireRole(...allowed: UserRole[]) {
+  return createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
+    const role = c.get('userRole') as UserRole
+    if (!allowed.includes(role)) {
+      return c.json({ error: { code: 'FORBIDDEN', message: 'Permissão insuficiente' } }, 403)
+    }
+    await next()
+  })
+}
+
 // ── Middleware ──────────────────────────────────────────────────────────────
 
 export const authMiddleware = createMiddleware<{ Variables: AuthVariables }>(

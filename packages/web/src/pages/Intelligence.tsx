@@ -19,11 +19,10 @@ import {
   ChevronRight,
   BarChart3,
 } from 'lucide-react'
-import { supabase, getAuthHeaders } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import { cn } from '@/lib/utils'
-
-const SERVER_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_SERVER_URL || 'http://localhost:3001'
 
 interface ConversionSummary {
   total: number
@@ -115,16 +114,14 @@ export function Intelligence() {
   async function fetchSummary() {
     setLoadingSummary(true)
     try {
-      const headers = getAuthHeaders()
-
       const startDate = new Date()
       startDate.setDate(startDate.getDate() - period)
 
       const params = new URLSearchParams({ start_date: startDate.toISOString() })
-      const res = await fetch(`${SERVER_URL}/api/intelligence/analytics?${params}`, {
-        headers,
-      })
-      if (res.ok) setSummary(await res.json())
+      const data = await api.get<ConversionSummary>(`/api/intelligence/analytics?${params}`)
+      setSummary(data)
+    } catch {
+      // handled by centralized api client
     } finally {
       setLoadingSummary(false)
     }

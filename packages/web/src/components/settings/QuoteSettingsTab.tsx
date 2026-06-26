@@ -5,14 +5,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { supabase, getAuthHeaders } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import { Loader2, ShoppingCart, Link2, Unplug, RefreshCw, Plus, X, Eye } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 export function QuoteSettingsTab() {
   const { profile } = useAuthContext()
@@ -57,16 +57,11 @@ export function QuoteSettingsTab() {
       setVisualSearchEnabled(org.visual_search_enabled || false)
     }
 
-    // Load quote settings
     try {
-      const headers = getAuthHeaders()
-      const res = await fetch(`${API_BASE}/api/quotes/settings/current`, { headers })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.default_markup) setDefaultMarkup(data.default_markup)
-        if (data.footer_text) setFooterText(data.footer_text)
-        if (data.payment_options) setPaymentOptions(data.payment_options)
-      }
+      const data = await api.get<{ default_markup?: number; footer_text?: string; payment_options?: string[] }>('/api/quotes/settings/current')
+      if (data.default_markup) setDefaultMarkup(data.default_markup)
+      if (data.footer_text) setFooterText(data.footer_text)
+      if (data.payment_options) setPaymentOptions(data.payment_options)
     } catch { /* use defaults */ }
 
     // Count products
@@ -83,13 +78,7 @@ export function QuoteSettingsTab() {
   async function handleSaveCredentials() {
     setSaving(true)
     try {
-      const headers = getAuthHeaders()
-      const res = await fetch(`${API_BASE}/api/quotes/shopify/credentials`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ domain: shopifyDomain, accessToken: shopifyToken }),
-      })
-      if (!res.ok) throw new Error('Falha ao salvar')
+      await api.put('/api/quotes/shopify/credentials', { domain: shopifyDomain, accessToken: shopifyToken })
       setIsConnected(true)
       toast.success('Credenciais salvas')
     } catch {
@@ -102,13 +91,7 @@ export function QuoteSettingsTab() {
   async function handleSync() {
     setSyncing(true)
     try {
-      const headers = getAuthHeaders()
-      const res = await fetch(`${API_BASE}/api/quotes/shopify/sync`, {
-        method: 'POST',
-        headers,
-      })
-      if (!res.ok) throw new Error('Falha ao sincronizar')
-      const result = await res.json()
+      const result = await api.post<{ synced: number }>('/api/quotes/shopify/sync')
       setProductCount(result.synced)
       toast.success(`${result.synced} produtos sincronizados`)
     } catch {
@@ -121,17 +104,11 @@ export function QuoteSettingsTab() {
   async function handleSaveSettings() {
     setSaving(true)
     try {
-      const headers = getAuthHeaders()
-      const res = await fetch(`${API_BASE}/api/quotes/settings/current`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          default_markup: defaultMarkup,
-          footer_text: footerText,
-          payment_options: paymentOptions,
-        }),
+      await api.put('/api/quotes/settings/current', {
+        default_markup: defaultMarkup,
+        footer_text: footerText,
+        payment_options: paymentOptions,
       })
-      if (!res.ok) throw new Error('Falha ao salvar')
       toast.success('Configurações salvas')
     } catch {
       toast.error('Erro ao salvar configurações')
@@ -166,12 +143,7 @@ export function QuoteSettingsTab() {
 
       if (enabled && productCount > 0) {
         toast.success('Visual Search ativado! Gerando embeddings dos produtos...')
-        // Trigger embedding generation via sync
-        const headers = getAuthHeaders()
-        fetch(`${API_BASE}/api/quotes/shopify/sync`, {
-          method: 'POST',
-          headers,
-        }).catch(() => {})
+        api.post('/api/quotes/shopify/sync').catch(() => {})
       } else if (enabled) {
         toast.success('Visual Search ativado! Sincronize os produtos primeiro.')
       } else {

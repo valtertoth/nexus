@@ -123,11 +123,12 @@ export function ContactPanel({ conversation, onClose, embedded }: ContactPanelPr
       const { data } = await supabase
         .from('sectors')
         .select('id, name, color, org_id')
+        .eq('org_id', conversation.org_id)
         .order('name')
       if (data) setSectors(data as Sector[])
     }
     loadSectors()
-  }, [])
+  }, [conversation.org_id])
 
   // Generic field updater
   const updateField = useCallback(

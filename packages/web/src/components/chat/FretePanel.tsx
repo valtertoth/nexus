@@ -56,7 +56,7 @@ function useTransportadoras() {
   const fetched = useRef(false)
 
   useEffect(() => {
-    if (fetched.current) return
+    if (fetched.current || !supabaseFrete) { setIsLoading(false); return }
     fetched.current = true
     supabaseFrete
       .from('transportadoras')
@@ -76,7 +76,7 @@ function useTransportadoraOrigens(transportadoraId: string | undefined) {
   const [data, setData] = useState<TransportadoraOrigem[]>([])
 
   useEffect(() => {
-    if (!transportadoraId) { setData([]); return }
+    if (!transportadoraId || !supabaseFrete) { setData([]); return }
     let cancelled = false
     supabaseFrete
       .from('transportadora_origens')
@@ -98,7 +98,7 @@ function useCidadeSearch(transportadoraId: string | undefined, search: string) {
   const [isFetching, setIsFetching] = useState(false)
 
   useEffect(() => {
-    if (!transportadoraId || search.length < 2) { setData([]); return }
+    if (!supabaseFrete || !transportadoraId || search.length < 2) { setData([]); return }
     let cancelled = false
     setIsFetching(true)
     supabaseFrete
@@ -128,7 +128,7 @@ function usePracaValores(
   const [data, setData] = useState<number[] | null>(null)
 
   useEffect(() => {
-    if (!transportadoraId || !origemCodigo || !pracaDestino) { setData(null); return }
+    if (!supabaseFrete || !transportadoraId || !origemCodigo || !pracaDestino) { setData(null); return }
     let cancelled = false
     supabaseFrete
       .from('transportadora_tabela_frete')

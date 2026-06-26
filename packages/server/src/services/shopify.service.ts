@@ -49,15 +49,23 @@ interface GraphQLResponse {
  * which is NOT available via REST API products endpoint.
  */
 export async function syncProducts(orgId: string): Promise<{ synced: number; errors: number }> {
-  // Get Shopify credentials
+  // Get Shopify credentials (encrypted)
   const { data: org } = await supabaseAdmin
     .from('organizations')
-    .select('shopify_domain, shopify_access_token')
+    .select('shopify_domain, shopify_access_token_encrypted')
     .eq('id', orgId)
     .single()
 
-  if (!org?.shopify_domain || !org?.shopify_access_token) {
+  if (!org?.shopify_domain || !org?.shopify_access_token_encrypted) {
     throw new Error('Credenciais Shopify não configuradas')
+  }
+
+  const { data: decryptedToken, error: decErr } = await supabaseAdmin.rpc('decrypt_shopify_token', {
+    encrypted: org.shopify_access_token_encrypted,
+  })
+
+  if (decErr || !decryptedToken) {
+    throw new Error('Falha ao descriptografar token Shopify')
   }
 
   const domain = org.shopify_domain.replace(/^https?:\/\//, '').replace(/\/$/, '')
@@ -119,7 +127,7 @@ export async function syncProducts(orgId: string): Promise<{ synced: number; err
     const response = await fetch(graphqlUrl, {
       method: 'POST',
       headers: {
-        'X-Shopify-Access-Token': org.shopify_access_token,
+        'X-Shopify-Access-Token': decryptedToken as string,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ query }),
@@ -209,7 +217,7 @@ export async function syncProducts(orgId: string): Promise<{ synced: number; err
             const nodesResp = await fetch(graphqlUrl, {
               method: 'POST',
               headers: {
-                'X-Shopify-Access-Token': org.shopify_access_token,
+                'X-Shopify-Access-Token': decryptedToken as string,
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({ query: nodesQuery }),

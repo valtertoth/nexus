@@ -1,7 +1,28 @@
 import { Hono } from 'hono'
-import { authMiddleware } from '../middleware/auth.js'
+import { z } from 'zod'
+import { authMiddleware, requireRole } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
+
+const createDirectiveSchema = z.object({
+  category: z.string().min(1),
+  title: z.string().min(1).max(200),
+  description: z.string().max(1000).optional(),
+  content: z.string().min(1).max(10000),
+  source_reference: z.string().max(500).optional(),
+  priority: z.number().int().min(0).max(100).optional(),
+  applies_to_sectors: z.array(z.string().uuid()).optional(),
+})
+
+const updateDirectiveSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).optional(),
+  content: z.string().min(1).max(10000).optional(),
+  source_reference: z.string().max(500).optional(),
+  priority: z.number().int().min(0).max(100).optional(),
+  is_active: z.boolean().optional(),
+  applies_to_sectors: z.array(z.string().uuid()).optional(),
+})
 
 type AuthVars = { Variables: { userId: string; orgId: string; userRole: string } }
 
@@ -9,6 +30,8 @@ const brain = new Hono<AuthVars>()
 
 brain.use('*', authMiddleware)
 brain.use('*', apiRateLimit)
+
+const adminOnly = requireRole('admin')
 
 // GET /api/brain — List all directives for the org
 brain.get('/', async (c) => {
@@ -45,22 +68,15 @@ brain.get('/categories', async (c) => {
 })
 
 // POST /api/brain — Create a new directive
-brain.post('/', async (c) => {
+brain.post('/', adminOnly, async (c) => {
   const orgId = c.get('orgId')
   const userId = c.get('userId')
-  const body = await c.req.json<{
-    category: string
-    title: string
-    description?: string
-    content: string
-    source_reference?: string
-    priority?: number
-    applies_to_sectors?: string[]
-  }>()
-
-  if (!body.category || !body.title || !body.content) {
-    return c.json({ error: 'category, title e content sao obrigatorios' }, 400)
+  const raw = await c.req.json()
+  const parsed = createDirectiveSchema.safeParse(raw)
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.issues[0].message }, 400)
   }
+  const body = parsed.data
 
   const { data, error } = await supabaseAdmin
     .from('org_brain_directives')
@@ -86,23 +102,26 @@ brain.post('/', async (c) => {
 })
 
 // PUT /api/brain/:id — Update a directive
-brain.put('/:id', async (c) => {
+brain.put('/:id', adminOnly, async (c) => {
   const orgId = c.get('orgId')
   const id = c.req.param('id')
-  const body = await c.req.json<{
-    title?: string
-    description?: string
-    content?: string
-    source_reference?: string
-    priority?: number
-    is_active?: boolean
-    applies_to_sectors?: string[]
-  }>()
+  const raw = await c.req.json()
+  const parsed = updateDirectiveSchema.safeParse(raw)
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.issues[0].message }, 400)
+  }
+  const body = parsed.data
 
   const { data, error } = await supabaseAdmin
     .from('org_brain_directives')
     .update({
-      ...body,
+      title: body.title,
+      description: body.description,
+      content: body.content,
+      source_reference: body.source_reference,
+      priority: body.priority,
+      is_active: body.is_active,
+      applies_to_sectors: body.applies_to_sectors,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
@@ -126,7 +145,7 @@ brain.put('/:id', async (c) => {
 })
 
 // DELETE /api/brain/:id — Delete a directive
-brain.delete('/:id', async (c) => {
+brain.delete('/:id', adminOnly, async (c) => {
   const orgId = c.get('orgId')
   const id = c.req.param('id')
 
@@ -144,7 +163,7 @@ brain.delete('/:id', async (c) => {
 })
 
 // PATCH /api/brain/:id/toggle — Toggle active state
-brain.patch('/:id/toggle', async (c) => {
+brain.patch('/:id/toggle', adminOnly, async (c) => {
   const orgId = c.get('orgId')
   const id = c.req.param('id')
 

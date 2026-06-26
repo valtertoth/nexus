@@ -37,10 +37,9 @@ import {
   Search,
   Loader2,
 } from 'lucide-react'
-import { supabase, getAuthHeaders } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
-
-const SERVER_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_SERVER_URL || 'http://localhost:3001'
 
 // --- Types ---
 
@@ -83,25 +82,6 @@ const CATEGORY_CONFIG: Record<string, { icon: React.ElementType; color: string }
   custom: { icon: Layers, color: 'zinc' },
 }
 
-// --- Helpers ---
-
-function apiFetch(path: string, options: RequestInit = {}) {
-  const headers = getAuthHeaders()
-  return fetch(`${SERVER_URL}${path}`, {
-    ...options,
-    headers: {
-      ...headers,
-      ...(options.headers || {}),
-    },
-  }).then(async (res) => {
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Erro desconhecido' }))
-      throw new Error(err.error || `Erro ${res.status}`)
-    }
-    return res.json()
-  })
-}
-
 // --- Main Component ---
 
 export function BrainPage() {
@@ -119,8 +99,8 @@ export function BrainPage() {
     setLoading(true)
     try {
       const [directivesRes, categoriesRes, sectorsData] = await Promise.all([
-        apiFetch('/api/brain'),
-        apiFetch('/api/brain/categories'),
+        api.get<{ directives: Directive[] }>('/api/brain'),
+        api.get<{ categories: Category[] }>('/api/brain/categories'),
         supabase.from('sectors').select('id, name').order('name'),
       ])
       setDirectives(directivesRes.directives || [])
@@ -139,7 +119,7 @@ export function BrainPage() {
 
   const handleToggle = async (id: string) => {
     try {
-      const res = await apiFetch(`/api/brain/${id}/toggle`, { method: 'PATCH' })
+      const res = await api.patch<{ directive: Directive }>(`/api/brain/${id}/toggle`)
       setDirectives((prev) =>
         prev.map((d) => (d.id === id ? { ...d, is_active: res.directive.is_active } : d))
       )
@@ -150,7 +130,7 @@ export function BrainPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await apiFetch(`/api/brain/${id}`, { method: 'DELETE' })
+      await api.delete(`/api/brain/${id}`)
       setDirectives((prev) => prev.filter((d) => d.id !== id))
     } catch (err) {
       console.error('Erro ao remover diretriz:', err)
@@ -161,18 +141,12 @@ export function BrainPage() {
     setSaving(true)
     try {
       if (editingDirective) {
-        const res = await apiFetch(`/api/brain/${editingDirective.id}`, {
-          method: 'PUT',
-          body: JSON.stringify(data),
-        })
+        const res = await api.put<{ directive: Directive }>(`/api/brain/${editingDirective.id}`, data)
         setDirectives((prev) =>
           prev.map((d) => (d.id === editingDirective.id ? res.directive : d))
         )
       } else {
-        const res = await apiFetch('/api/brain', {
-          method: 'POST',
-          body: JSON.stringify(data),
-        })
+        const res = await api.post<{ directive: Directive }>('/api/brain', data)
         setDirectives((prev) => [res.directive, ...prev])
       }
       setDialogOpen(false)

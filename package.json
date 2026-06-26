@@ -15,7 +15,5 @@
     "build": "npm run build:shared && npm run build:web && npm run build:server",
     "test": "npm run test -w @nexus/server"
   },
-  "dependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc.9"
-  }
+  "dependencies": {}
 }

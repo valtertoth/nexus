@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
-import { getAuthHeaders } from '@/lib/supabase'
-
-const SERVER_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_SERVER_URL || 'http://localhost:3001'
+import { api, ApiError } from '@/lib/api'
 
 export interface TagDefinition {
   id: string
@@ -37,27 +35,18 @@ export interface TagSuggestion {
   reasoning: string
 }
 
-function apiFetch(path: string, options?: RequestInit) {
-  const headers = getAuthHeaders()
-  return fetch(`${SERVER_URL}${path}`, {
-    ...options,
-    headers: {
-      ...headers,
-      ...(options?.headers || {}),
-    },
-  })
-}
-
 // Cache tag definitions globally (they rarely change)
 let cachedTags: TagDefinition[] | null = null
 
 export async function fetchAllTags(): Promise<TagDefinition[]> {
   if (cachedTags) return cachedTags
-  const res = await apiFetch('/api/tags')
-  if (!res.ok) return []
-  const data = await res.json()
-  cachedTags = data.tags
-  return data.tags
+  try {
+    const data = await api.get<{ tags: TagDefinition[] }>('/api/tags')
+    cachedTags = data.tags
+    return data.tags
+  } catch {
+    return []
+  }
 }
 
 export function invalidateTagCache() {
@@ -91,11 +80,10 @@ export function useConversationTags(conversationId: string | null) {
     if (!conversationId) return
     setLoading(true)
     try {
-      const res = await apiFetch(`/api/tags/conversation/${conversationId}`)
-      if (res.ok) {
-        const data = await res.json()
-        setAppliedTags(data.tags)
-      }
+      const data = await api.get<{ tags: ConversationTag[] }>(`/api/tags/conversation/${conversationId}`)
+      setAppliedTags(data.tags)
+    } catch {
+      // silently fail on fetch — keep previous tags
     } finally {
       setLoading(false)
     }
@@ -108,15 +96,12 @@ export function useConversationTags(conversationId: string | null) {
   const addTag = useCallback(
     async (tagSlug: string) => {
       if (!conversationId) return
-      const res = await apiFetch(`/api/tags/conversation/${conversationId}`, {
-        method: 'POST',
-        body: JSON.stringify({ tag_slug: tagSlug }),
-      })
-      if (res.ok) {
+      try {
+        await api.post(`/api/tags/conversation/${conversationId}`, { tag_slug: tagSlug })
         await fetchTags()
-      } else {
-        const err = await res.json().catch(() => ({}))
-        toast.error(err.error || 'Erro ao adicionar tag')
+      } catch (err) {
+        const message = err instanceof ApiError ? err.message : 'Erro ao adicionar tag'
+        toast.error(message)
       }
     },
     [conversationId, fetchTags]
@@ -125,11 +110,11 @@ export function useConversationTags(conversationId: string | null) {
   const removeTag = useCallback(
     async (tagSlug: string) => {
       if (!conversationId) return
-      const res = await apiFetch(`/api/tags/conversation/${conversationId}/${tagSlug}`, {
-        method: 'DELETE',
-      })
-      if (res.ok) {
+      try {
+        await api.delete(`/api/tags/conversation/${conversationId}/${tagSlug}`)
         setAppliedTags((prev) => prev.filter((t) => t.tag_slug !== tagSlug))
+      } catch {
+        // silently fail — tag stays in list
       }
     },
     [conversationId]
@@ -138,13 +123,15 @@ export function useConversationTags(conversationId: string | null) {
   const fetchSuggestions = useCallback(
     async (outcome: string): Promise<TagSuggestion[]> => {
       if (!conversationId) return []
-      const res = await apiFetch(`/api/tags/conversation/${conversationId}/suggest`, {
-        method: 'POST',
-        body: JSON.stringify({ outcome }),
-      })
-      if (!res.ok) return []
-      const data = await res.json()
-      return data.suggestions || []
+      try {
+        const data = await api.post<{ suggestions: TagSuggestion[] }>(
+          `/api/tags/conversation/${conversationId}/suggest`,
+          { outcome },
+        )
+        return data.suggestions || []
+      } catch {
+        return []
+      }
     },
     [conversationId]
   )

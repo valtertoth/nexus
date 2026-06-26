@@ -20,6 +20,7 @@ import { Attribution } from '@/pages/Attribution'
 import { BrainPage } from '@/pages/Brain'
 import Simulator from '@/pages/Simulator'
 import WhatsAppConnect from '@/pages/WhatsAppConnect'
+import Onboarding from '@/pages/Onboarding'
 
 function ProfileGuard({ children }: { children: React.ReactNode }) {
   const activeProfile = useActiveProfile()
@@ -38,6 +39,11 @@ export default function App() {
             <ConnectionStatus />
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/onboarding" element={
+                <ProtectedRoute>
+                  <Onboarding />
+                </ProtectedRoute>
+              } />
               <Route path="/profile-select" element={
                 <ProtectedRoute>
                   <ProfileSelector />

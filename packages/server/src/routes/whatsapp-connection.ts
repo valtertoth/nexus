@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
-import { authMiddleware } from '../middleware/auth.js'
+import { authMiddleware, requireRole } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
+import { getOrgCredentials } from '../services/whatsapp.service.js'
 
 const GRAPH_API_URL = 'https://graph.facebook.com/v22.0'
 
@@ -195,7 +196,7 @@ whatsappConnection.get('/profile', async (c) => {
 })
 
 // PUT /api/whatsapp/profile -- Update WhatsApp Business Profile (text fields)
-whatsappConnection.put('/profile', async (c) => {
+whatsappConnection.put('/profile', requireRole('admin'), async (c) => {
   const orgId = c.get('orgId')
   const body = await c.req.json<{
     about?: string
@@ -244,7 +245,7 @@ whatsappConnection.put('/profile', async (c) => {
 })
 
 // POST /api/whatsapp/profile/photo -- Upload profile picture
-whatsappConnection.post('/profile/photo', async (c) => {
+whatsappConnection.post('/profile/photo', requireRole('admin'), async (c) => {
   const orgId = c.get('orgId')
 
   try {
@@ -358,7 +359,7 @@ whatsappConnection.post('/profile/photo', async (c) => {
 })
 
 // DELETE /api/whatsapp/profile/photo -- Remove profile picture
-whatsappConnection.delete('/profile/photo', async (c) => {
+whatsappConnection.delete('/profile/photo', requireRole('admin'), async (c) => {
   const orgId = c.get('orgId')
 
   try {
@@ -391,33 +392,5 @@ whatsappConnection.delete('/profile/photo', async (c) => {
     }, 500)
   }
 })
-
-// Helper: get org credentials (same logic as whatsapp.service.ts)
-async function getOrgCredentials(orgId: string) {
-  const { data } = await supabaseAdmin
-    .from('organizations')
-    .select('wa_phone_number_id, wa_access_token_encrypted')
-    .eq('id', orgId)
-    .single()
-
-  if (data?.wa_phone_number_id && data?.wa_access_token_encrypted) {
-    const { data: tokenData } = await supabaseAdmin.rpc('decrypt_wa_token', {
-      encrypted: data.wa_access_token_encrypted,
-    })
-    if (tokenData) {
-      return {
-        phoneNumberId: data.wa_phone_number_id,
-        accessToken: tokenData as string,
-      }
-    }
-  }
-
-  const phoneNumberId = process.env.WA_PHONE_NUMBER_ID
-  const accessToken = process.env.WA_ACCESS_TOKEN
-  if (!phoneNumberId || !accessToken) {
-    throw new Error('WhatsApp não configurado. Salve suas credenciais primeiro.')
-  }
-  return { phoneNumberId, accessToken }
-}
 
 export default whatsappConnection

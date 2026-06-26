@@ -3,9 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { BrainCircuit, Send, Loader2, X, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getAuthHeaders } from '@/lib/supabase'
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+import { apiStream } from '@/lib/api'
 
 interface ConsultMessage {
   id: string
@@ -82,24 +80,16 @@ export function AiConsultPanel({ conversationId, open, onClose, embedded }: AiCo
     ])
 
     try {
-      const headers = getAuthHeaders()
-
       // Build chat history (exclude the current question)
       const chatHistory = messages.map((m) => ({
         role: m.role,
         content: m.content,
       }))
 
-      const response = await fetch(
-        `${API_BASE}/api/ai/consult/${conversationId}`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ question, chatHistory }),
-        }
+      const response = await apiStream(
+        `/api/ai/consult/${conversationId}`,
+        { question, chatHistory },
       )
-
-      if (!response.ok) throw new Error('Falha na consulta')
 
       const reader = response.body?.getReader()
       const decoder = new TextDecoder('utf-8')

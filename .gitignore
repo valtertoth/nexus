@@ -24,3 +24,5 @@ test-audit.mjs
 # Server logs
 server*.log
 server*-err.log
+
+.vercel

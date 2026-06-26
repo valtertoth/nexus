@@ -10,6 +10,7 @@ import type { Sector } from '@nexus/shared'
 import { Loader2, Plus, Pencil, Trash2, Save, X, Layers } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
+import { toast } from 'sonner'
 
 interface SectorForm {
   name: string
@@ -47,11 +48,17 @@ export function SectorsTab() {
 
   const fetchSectors = useCallback(async () => {
     if (!orgId) return
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('sectors')
       .select('*')
       .eq('org_id', orgId)
       .order('name')
+
+    if (error) {
+      toast.error('Erro ao carregar setores')
+      setLoading(false)
+      return
+    }
 
     setSectors((data || []) as Sector[])
     setLoading(false)
@@ -91,7 +98,7 @@ export function SectorsTab() {
     setSaving(true)
 
     if (creating) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('sectors')
         .insert({
           org_id: orgId,
@@ -105,11 +112,18 @@ export function SectorsTab() {
         .select()
         .single()
 
+      if (error) {
+        toast.error('Erro ao criar setor')
+        setSaving(false)
+        return
+      }
+
       if (data) {
         setSectors((prev) => [...prev, data as Sector])
       }
+      toast.success('Setor criado')
     } else if (editingId) {
-      await supabase
+      const { error } = await supabase
         .from('sectors')
         .update({
           name: form.name,
@@ -121,6 +135,12 @@ export function SectorsTab() {
         })
         .eq('id', editingId)
 
+      if (error) {
+        toast.error('Erro ao atualizar setor')
+        setSaving(false)
+        return
+      }
+
       setSectors((prev) =>
         prev.map((s) =>
           s.id === editingId
@@ -128,6 +148,7 @@ export function SectorsTab() {
             : s
         )
       )
+      toast.success('Setor atualizado')
     }
 
     setSaving(false)
@@ -137,7 +158,14 @@ export function SectorsTab() {
   const handleDelete = async (id: string) => {
     if (!confirm('Tem certeza que deseja excluir este setor?')) return
 
-    await supabase.from('sectors').delete().eq('id', id)
+    const { error } = await supabase.from('sectors').delete().eq('id', id)
+
+    if (error) {
+      toast.error('Erro ao excluir setor')
+      return
+    }
+
+    toast.success('Setor excluido')
     setSectors((prev) => prev.filter((s) => s.id !== id))
   }
 

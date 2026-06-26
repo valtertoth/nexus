@@ -18,10 +18,8 @@ import {
   FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getAuthHeaders } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { toast } from 'sonner'
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface Product {
   id: string
@@ -95,15 +93,11 @@ export function QuoteBuilder({
   async function loadProducts(q?: string) {
     setLoadingProducts(true)
     try {
-      const headers = getAuthHeaders()
-      const url = q
-        ? `${API_BASE}/api/quotes/shopify/products?q=${encodeURIComponent(q)}`
-        : `${API_BASE}/api/quotes/shopify/products`
-      const res = await fetch(url, { headers })
-      if (res.ok) {
-        const data = await res.json()
-        setProducts(data.products || [])
-      }
+      const path = q
+        ? `/api/quotes/shopify/products?q=${encodeURIComponent(q)}`
+        : `/api/quotes/shopify/products`
+      const data = await api.get<{ products: Product[] }>(path)
+      setProducts(data.products || [])
     } catch {
       // silent
     } finally {
@@ -113,12 +107,8 @@ export function QuoteBuilder({
 
   async function loadSettings() {
     try {
-      const headers = getAuthHeaders()
-      const res = await fetch(`${API_BASE}/api/quotes/settings/current`, { headers })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.default_markup) setDefaultMarkup(data.default_markup)
-      }
+      const data = await api.get<{ default_markup?: number }>('/api/quotes/settings/current')
+      if (data.default_markup) setDefaultMarkup(data.default_markup)
     } catch {
       // use defaults
     }
@@ -192,35 +182,21 @@ export function QuoteBuilder({
     setSaving(true)
 
     try {
-      const headers = getAuthHeaders()
-
-      const res = await fetch(`${API_BASE}/api/quotes`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          conversationId,
-          contactId,
-          items,
-          discountType: discountValue > 0 ? discountType : undefined,
-          discountValue: discountValue > 0 ? discountValue : undefined,
-          paymentTerms: paymentTerms || undefined,
-          notes: notes || undefined,
-          sellerName,
-          validDays,
-        }),
+      const quote = await api.post<{ id: string }>('/api/quotes', {
+        conversationId,
+        contactId,
+        items,
+        discountType: discountValue > 0 ? discountType : undefined,
+        discountValue: discountValue > 0 ? discountValue : undefined,
+        paymentTerms: paymentTerms || undefined,
+        notes: notes || undefined,
+        sellerName,
+        validDays,
       })
 
-      if (!res.ok) throw new Error('Falha ao criar orçamento')
-
-      const quote = await res.json()
-
-      // Get formatted text
-      const textRes = await fetch(`${API_BASE}/api/quotes/${quote.id}/text`, { headers })
-      if (textRes.ok) {
-        const { text } = await textRes.json()
-        setPreviewText(text)
-        setStep('preview')
-      }
+      const { text } = await api.get<{ text: string }>(`/api/quotes/${quote.id}/text`)
+      setPreviewText(text)
+      setStep('preview')
 
       toast.success('Orçamento criado')
     } catch (err) {

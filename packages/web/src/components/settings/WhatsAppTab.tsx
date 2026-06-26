@@ -6,7 +6,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { supabase, getAuthHeaders } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { api, ApiError } from '@/lib/api'
 import { useAuthContext } from '@/components/auth/AuthProvider'
 import {
   Loader2,
@@ -18,8 +19,6 @@ import {
   Trash2,
   RefreshCw,
 } from 'lucide-react'
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface BusinessProfile {
   about?: string
@@ -115,18 +114,7 @@ export function WhatsAppTab() {
     setConnectionStatus('idle')
 
     try {
-      const headers = getAuthHeaders()
-      const response = await fetch(`${API_BASE}/api/whatsapp/test-connection`, {
-        method: 'POST',
-        headers,
-      })
-
-      if (!response.ok) {
-        setConnectionStatus('error')
-        return
-      }
-
-      const result = await response.json() as { status: string }
+      const result = await api.post<{ status: string }>('/api/whatsapp/test-connection')
       setConnectionStatus(result.status === 'connected' ? 'ok' : 'error')
     } catch {
       setConnectionStatus('error')
@@ -143,21 +131,12 @@ export function WhatsAppTab() {
     setProfileSuccess('')
 
     try {
-      const headers = getAuthHeaders()
-      const response = await fetch(`${API_BASE}/api/whatsapp/profile`, { headers })
-
-      if (!response.ok) {
-        const err = await response.json() as { error?: string }
-        setProfileError(err.error || 'Erro ao buscar perfil')
-        return
-      }
-
-      const result = await response.json() as { profile: BusinessProfile }
+      const result = await api.get<{ profile: BusinessProfile }>('/api/whatsapp/profile')
       setBizProfile(result.profile || {})
       setWebsiteInput((result.profile?.websites || []).join(', '))
       setProfileLoaded(true)
-    } catch {
-      setProfileError('Erro de conexao ao buscar perfil')
+    } catch (err) {
+      setProfileError(err instanceof ApiError ? err.message : 'Erro de conexao ao buscar perfil')
     } finally {
       setLoadingProfile(false)
     }
@@ -169,35 +148,24 @@ export function WhatsAppTab() {
     setProfileSuccess('')
 
     try {
-      const headers = getAuthHeaders()
       const websites = websiteInput
         .split(',')
         .map((w) => w.trim())
         .filter(Boolean)
 
-      const response = await fetch(`${API_BASE}/api/whatsapp/profile`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          about: bizProfile.about || '',
-          address: bizProfile.address || '',
-          description: bizProfile.description || '',
-          email: bizProfile.email || '',
-          vertical: bizProfile.vertical || '',
-          websites: websites.length > 0 ? websites : [],
-        }),
+      await api.put('/api/whatsapp/profile', {
+        about: bizProfile.about || '',
+        address: bizProfile.address || '',
+        description: bizProfile.description || '',
+        email: bizProfile.email || '',
+        vertical: bizProfile.vertical || '',
+        websites: websites.length > 0 ? websites : [],
       })
-
-      if (!response.ok) {
-        const err = await response.json() as { error?: string }
-        setProfileError(err.error || 'Erro ao salvar perfil')
-        return
-      }
 
       setProfileSuccess('Perfil atualizado com sucesso!')
       setTimeout(() => setProfileSuccess(''), 3000)
-    } catch {
-      setProfileError('Erro de conexao ao salvar perfil')
+    } catch (err) {
+      setProfileError(err instanceof ApiError ? err.message : 'Erro de conexao ao salvar perfil')
     } finally {
       setSavingProfile(false)
     }
@@ -212,35 +180,19 @@ export function WhatsAppTab() {
     setProfileSuccess('')
 
     try {
-      const headers = getAuthHeaders()
-      // Remove Content-Type so browser sets multipart boundary
-      const { 'Content-Type': _ct, ...headersWithoutCt } = headers
-
       const formData = new FormData()
       formData.append('file', file)
 
-      const response = await fetch(`${API_BASE}/api/whatsapp/profile/photo`, {
-        method: 'POST',
-        headers: headersWithoutCt,
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const err = await response.json() as { error?: string }
-        setProfileError(err.error || 'Erro ao enviar foto')
-        return
-      }
+      await api.post('/api/whatsapp/profile/photo', formData)
 
       setProfileSuccess('Foto atualizada! Pode levar alguns minutos para aparecer no WhatsApp.')
       setTimeout(() => setProfileSuccess(''), 5000)
 
-      // Refresh profile to get new photo URL
       setTimeout(() => fetchProfile(), 2000)
-    } catch {
-      setProfileError('Erro ao enviar foto')
+    } catch (err) {
+      setProfileError(err instanceof ApiError ? err.message : 'Erro ao enviar foto')
     } finally {
       setUploadingPhoto(false)
-      // Clear file input
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
@@ -250,23 +202,13 @@ export function WhatsAppTab() {
     setProfileError('')
 
     try {
-      const headers = getAuthHeaders()
-      const response = await fetch(`${API_BASE}/api/whatsapp/profile/photo`, {
-        method: 'DELETE',
-        headers,
-      })
-
-      if (!response.ok) {
-        const err = await response.json() as { error?: string }
-        setProfileError(err.error || 'Erro ao remover foto')
-        return
-      }
+      await api.delete('/api/whatsapp/profile/photo')
 
       setBizProfile((prev) => ({ ...prev, profile_picture_url: undefined }))
       setProfileSuccess('Foto removida!')
       setTimeout(() => setProfileSuccess(''), 3000)
-    } catch {
-      setProfileError('Erro ao remover foto')
+    } catch (err) {
+      setProfileError(err instanceof ApiError ? err.message : 'Erro ao remover foto')
     } finally {
       setUploadingPhoto(false)
     }

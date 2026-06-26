@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { authMiddleware } from '../middleware/auth.js'
+import { authMiddleware, requireRole } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { requireUUID, requireString } from '../lib/validate.js'
@@ -200,18 +200,24 @@ quotes.put('/settings/current', async (c) => {
 })
 
 // PUT /api/quotes/shopify/credentials — Save Shopify credentials
-quotes.put('/shopify/credentials', async (c) => {
+quotes.put('/shopify/credentials', requireRole('admin'), async (c) => {
   const orgId = c.get('orgId')
   const body = await c.req.json<{ domain: string; accessToken: string }>()
 
   requireString(body.domain, 'domain')
   requireString(body.accessToken, 'accessToken')
 
+  const { data: encrypted, error: encErr } = await supabaseAdmin.rpc('encrypt_shopify_token', {
+    token: body.accessToken,
+  })
+
+  if (encErr) return c.json({ error: 'Falha ao criptografar token' }, 500)
+
   const { error } = await supabaseAdmin
     .from('organizations')
     .update({
       shopify_domain: body.domain,
-      shopify_access_token: body.accessToken,
+      shopify_access_token_encrypted: encrypted,
     })
     .eq('id', orgId)
 

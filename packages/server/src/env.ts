@@ -50,7 +50,7 @@ for (const [key, defaultValue] of Object.entries(optionalDefaults)) {
 }
 
 // AI keys: warn but don't crash (some features just won't work)
-const aiKeys = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] as const
+const aiKeys = ['ANTHROPIC_API_KEY'] as const
 
 // Collect ALL missing required vars before throwing
 const missing: string[] = []

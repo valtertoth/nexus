@@ -4,12 +4,16 @@ import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { PresenceProvider } from '@/contexts/PresenceContext'
 import { useConversationSync } from '@/hooks/useConversationSync'
+import { useServerHealth } from '@/hooks/useServerHealth'
 import { useConversationStore } from '@/stores/conversationStore'
 import { requestNotificationPermission } from '@/lib/notifications'
 
 export function MainLayout() {
   // Single subscription for all conversation realtime events
   useConversationSync()
+
+  // Poll backend health endpoint every 30s
+  useServerHealth()
 
   const conversations = useConversationStore((s) => s.conversations)
 

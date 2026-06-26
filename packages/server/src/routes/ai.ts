@@ -124,6 +124,20 @@ ai.post('/consult/:conversationId', async (c) => {
   const orgId = c.get('orgId')
   const conversationId = c.req.param('conversationId')
 
+  requireUUID(conversationId, 'conversationId')
+
+  // Verify conversation belongs to caller's org before streaming
+  const { data: conv } = await supabaseAdmin
+    .from('conversations')
+    .select('id')
+    .eq('id', conversationId)
+    .eq('org_id', orgId)
+    .single()
+
+  if (!conv) {
+    return c.json({ error: 'Conversa não encontrada' }, 404)
+  }
+
   const body = await c.req.json<{
     question: string
     chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>

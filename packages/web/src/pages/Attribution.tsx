@@ -20,10 +20,9 @@ import {
   ArrowRight,
   GitMerge,
 } from 'lucide-react'
-import { supabase, getAuthHeaders } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
-
-const SERVER_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_SERVER_URL || 'http://localhost:3001'
 
 const CHANNEL_LABELS: Record<string, string> = {
   meta_paid: 'Meta Ads',
@@ -72,11 +71,12 @@ interface TagFrequency {
   revenue: number | null
 }
 
-function apiFetch(path: string) {
-  const headers = getAuthHeaders()
-  return fetch(`${SERVER_URL}${path}`, { headers }).then((res) =>
-    res.ok ? res.json() : null
-  )
+async function apiFetchOrNull<T>(path: string): Promise<T | null> {
+  try {
+    return await api.get<T>(path)
+  } catch {
+    return null
+  }
 }
 
 export function Attribution() {
@@ -100,8 +100,8 @@ export function Attribution() {
       if (channelFilter !== 'all') params.set('channel', channelFilter)
 
       const [funnelData, accountData] = await Promise.all([
-        apiFetch(`/api/intelligence/analytics?${params}`),
-        apiFetch(`/api/tags/analytics/accountability?${params}`),
+        apiFetchOrNull<FunnelData>(`/api/intelligence/analytics?${params}`),
+        apiFetchOrNull<AccountabilityData>(`/api/tags/analytics/accountability?${params}`),
       ])
 
       if (funnelData) setFunnel(funnelData)

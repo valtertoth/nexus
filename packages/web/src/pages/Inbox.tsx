@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
 import { useConversations } from '@/hooks/useConversations'
-import { getAuthHeaders } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { toast } from 'sonner'
 import { ConversationList } from '@/components/inbox/ConversationList'
 import { ChatPanel } from '@/components/chat/ChatPanel'
@@ -20,32 +20,21 @@ export default function Inbox() {
   const sendMessageRef = useRef<(text: string) => void>(() => {})
   const insertInComposerRef = useRef<(text: string) => void>(() => {})
 
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
-
   const sendMediaUrl = useCallback(async (url: string, contentType: 'image' | 'document' | 'video', caption?: string, filename?: string) => {
     if (!selectedConversation) return
     try {
-      const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' }
-      const res = await fetch(`${API_BASE}/api/messages/send-media-url`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          conversationId: selectedConversation.id,
-          url,
-          contentType,
-          caption,
-          filename,
-        }),
+      await api.post('/api/messages/send-media-url', {
+        conversationId: selectedConversation.id,
+        url,
+        contentType,
+        caption,
+        filename,
       })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || 'Erro ao enviar mídia')
-      }
     } catch (err) {
       console.error('[Inbox] sendMediaUrl failed:', err)
       toast.error(err instanceof Error ? err.message : 'Erro ao enviar mídia')
     }
-  }, [selectedConversation, API_BASE])
+  }, [selectedConversation])
 
   return (
     <div className="flex h-full overflow-hidden">
