@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 'react'
+import { useEffect, useRef, useState, useCallback, type MutableRefObject, type DragEvent } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useMessages } from '@/hooks/useMessages'
 import { useAuthContext } from '@/components/auth/AuthProvider'
@@ -8,7 +8,7 @@ import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
 import { AiComposer } from './AiComposer'
 import { QuoteBuilder } from './QuoteBuilder'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Upload } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatPhone } from '@nexus/shared'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
@@ -154,6 +154,49 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
   const windowExpires = conversation.wa_service_window_expires_at
   const isWindowExpired = windowExpires ? new Date(windowExpires) <= new Date() : false
 
+  const [isDragging, setIsDragging] = useState(false)
+  const dragCounterRef = useRef(0)
+
+  const handleDragEnter = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current++
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragging(true)
+    }
+  }, [])
+
+  const handleDragLeave = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current--
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false)
+    }
+  }, [])
+
+  const handleDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+
+  const handleDrop = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    dragCounterRef.current = 0
+
+    const file = e.dataTransfer.files?.[0]
+    if (!file || !sendMedia) return
+
+    const contentType = file.type.startsWith('image/') ? 'image'
+      : file.type.startsWith('video/') ? 'video'
+      : file.type.startsWith('audio/') ? 'audio'
+      : 'document' as const
+
+    sendMedia(file, contentType)
+  }, [sendMedia])
+
   const handleSend = useCallback((content: string) => {
     sendMessage(content)
     setComposerInitialValue('')
@@ -191,7 +234,21 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
   return (
     <div className="flex h-full">
       {/* Main chat area */}
-      <div className="flex flex-col flex-1 min-w-0 bg-white">
+      <div
+        className="flex flex-col flex-1 min-w-0 bg-white relative"
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {isDragging && (
+          <div className="absolute inset-0 z-40 bg-white/90 backdrop-blur-sm flex items-center justify-center border-2 border-dashed border-zinc-300 rounded-lg m-2 pointer-events-none">
+            <div className="flex flex-col items-center gap-2 text-zinc-500">
+              <Upload className="w-8 h-8" />
+              <span className="text-sm font-medium">Solte o arquivo aqui</span>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <ChatHeader
           conversation={conversation}

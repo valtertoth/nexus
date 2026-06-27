@@ -1,14 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { Phone, Mail, Calendar, Tag, X, ChevronDown, Loader2 } from 'lucide-react'
+import { Phone, Mail, Calendar, Tag, X, ChevronDown, Loader2, ShoppingBag, ExternalLink, Link2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getInitials, formatPhone } from '@nexus/shared'
 import { getAvatarColor } from '@/lib/avatarColors'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { toast } from 'sonner'
 import { useConversationStore } from '@/stores/conversationStore'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
@@ -203,7 +205,7 @@ export function ContactPanel({ conversation, onClose, embedded }: ContactPanelPr
 
       <Separator />
 
-      {/* Contact details */}
+      {/* Contact details — editable */}
       <div className="px-4 py-4 space-y-4">
         {contact?.phone && (
           <div className="flex items-center gap-3">
@@ -211,11 +213,16 @@ export function ContactPanel({ conversation, onClose, embedded }: ContactPanelPr
             <span className="text-sm text-zinc-600">{formatPhone(contact.phone)}</span>
           </div>
         )}
-        {contact?.email && (
-          <div className="flex items-center gap-3">
-            <Mail className="w-4 h-4 text-zinc-400" />
-            <span className="text-sm text-zinc-600">{contact.email}</span>
-          </div>
+        {contact && (
+          <EditableContactField
+            icon={<Mail className="w-4 h-4 text-zinc-400" />}
+            value={contact.email || ''}
+            placeholder="Adicionar email"
+            onSave={async (val) => {
+              await api.patch(`/api/contacts/${contact.id}`, { email: val || null })
+              toast.success('Email atualizado')
+            }}
+          />
         )}
         {contact?.first_message_at && (
           <div className="flex items-center gap-3">
@@ -276,6 +283,209 @@ export function ContactPanel({ conversation, onClose, embedded }: ContactPanelPr
           saving={savingField === 'sector_id'}
         />
       </div>
+
+      {/* Shopify integration */}
+      {contact && <ShopifySection contactId={contact.id} />}
     </div>
+  )
+}
+
+// ─── Editable Contact Field ────────────────────────────────────────
+function EditableContactField({
+  icon,
+  value,
+  placeholder,
+  onSave,
+}: {
+  icon: React.ReactNode
+  value: string
+  placeholder: string
+  onSave: (value: string) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    if (draft === value) {
+      setEditing(false)
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave(draft.trim())
+      setEditing(false)
+    } catch {
+      toast.error('Erro ao salvar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-3">
+        {icon}
+        <input
+          autoFocus
+          className="text-sm text-zinc-600 bg-transparent border-b border-zinc-300 focus:border-zinc-900 outline-none flex-1 py-0.5"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={handleSave}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSave()
+            if (e.key === 'Escape') { setDraft(value); setEditing(false) }
+          }}
+          disabled={saving}
+          placeholder={placeholder}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="flex items-center gap-3 cursor-pointer group"
+      onClick={() => { setDraft(value); setEditing(true) }}
+    >
+      {icon}
+      <span className={cn('text-sm', value ? 'text-zinc-600' : 'text-zinc-400 italic')}>
+        {value || placeholder}
+      </span>
+    </div>
+  )
+}
+
+// ─── Shopify Section ────────────────────────────────────────────────
+interface ShopifyCandidate {
+  id: number
+  name: string
+  email: string
+  phone: string
+  orders_count: number
+  total_spent: string
+  url: string
+}
+
+function ShopifySection({ contactId }: { contactId: string }) {
+  const [state, setState] = useState<'idle' | 'loading' | 'found' | 'not_found' | 'linked' | 'error'>('idle')
+  const [candidates, setCandidates] = useState<ShopifyCandidate[]>([])
+  const [linkedId, setLinkedId] = useState<number | null>(null)
+  const [linking, setLinking] = useState(false)
+
+  const lookup = useCallback(async () => {
+    setState('loading')
+    try {
+      const data = await api.get<{ linked?: boolean; shopify_customer_id?: number; candidates?: ShopifyCandidate[]; error?: string }>(`/api/contacts/${contactId}/shopify`)
+
+      if (data.error) {
+        setState('error')
+        return
+      }
+
+      if (data.linked) {
+        setLinkedId(data.shopify_customer_id || null)
+        setState('linked')
+      } else if (data.candidates && data.candidates.length > 0) {
+        setCandidates(data.candidates)
+        setState('found')
+      } else {
+        setState('not_found')
+      }
+    } catch {
+      setState('error')
+    }
+  }, [contactId])
+
+  const linkCustomer = useCallback(async (candidate: ShopifyCandidate) => {
+    setLinking(true)
+    try {
+      await api.post(`/api/contacts/${contactId}/shopify/link`, {
+        shopifyCustomerId: candidate.id,
+        shopifyCustomerUrl: candidate.url,
+      })
+      setLinkedId(candidate.id)
+      setState('linked')
+      toast.success('Contato vinculado ao Shopify')
+    } catch {
+      toast.error('Erro ao vincular')
+    } finally {
+      setLinking(false)
+    }
+  }, [contactId])
+
+  return (
+    <>
+      <Separator />
+      <div className="px-4 py-4">
+        <div className="flex items-center gap-2 mb-3">
+          <ShoppingBag className="w-4 h-4 text-zinc-400" />
+          <span className="text-xs font-medium text-zinc-500">Shopify</span>
+        </div>
+
+        {state === 'idle' && (
+          <Button variant="outline" size="sm" className="w-full text-xs" onClick={lookup}>
+            <Link2 className="w-3 h-3 mr-1.5" />
+            Buscar cliente no Shopify
+          </Button>
+        )}
+
+        {state === 'loading' && (
+          <div className="flex items-center justify-center py-3">
+            <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+          </div>
+        )}
+
+        {state === 'linked' && (
+          <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg">
+            <ShoppingBag className="w-3.5 h-3.5" />
+            <span>Vinculado (ID: {linkedId})</span>
+          </div>
+        )}
+
+        {state === 'found' && (
+          <div className="space-y-2">
+            <p className="text-xs text-zinc-500">{candidates.length} cliente(s) encontrado(s):</p>
+            {candidates.map((c) => (
+              <div key={c.id} className="border border-zinc-200 rounded-lg p-2.5 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-zinc-900">{c.name || 'Sem nome'}</span>
+                  <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-600">
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                {c.email && <p className="text-xs text-zinc-500">{c.email}</p>}
+                <div className="flex items-center gap-3 text-xs text-zinc-400">
+                  <span>{c.orders_count} pedidos</span>
+                  <span>R$ {c.total_spent}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs mt-1"
+                  onClick={() => linkCustomer(c)}
+                  disabled={linking}
+                >
+                  {linking ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Vincular este cliente'}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {state === 'not_found' && (
+          <p className="text-xs text-zinc-400 text-center py-2">Nenhum cliente encontrado no Shopify</p>
+        )}
+
+        {state === 'error' && (
+          <div className="text-center py-2">
+            <p className="text-xs text-zinc-400 mb-2">Shopify nao configurado</p>
+            <Button variant="outline" size="sm" className="text-xs" onClick={lookup}>
+              Tentar novamente
+            </Button>
+          </div>
+        )}
+      </div>
+    </>
   )
 }

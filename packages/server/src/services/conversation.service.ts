@@ -165,7 +165,6 @@ export async function upsertConversation(
     .single()
 
   if (error) {
-    // Race: another webhook created/reopened a conversation between our SELECT and INSERT
     if (error.code === '23505') {
       const { data: raceWinner } = await supabaseAdmin
         .from('conversations')
@@ -180,6 +179,28 @@ export async function upsertConversation(
     }
     throw new Error(`Failed to create conversation: ${error.message}`)
   }
+
+  // Increment total_conversations on the contact (fire-and-forget)
+  supabaseAdmin.rpc('increment_contact_conversations', { p_contact_id: contactId }).then(({ error: rpcErr }) => {
+    if (rpcErr) {
+      // Fallback: non-atomic increment
+      supabaseAdmin
+        .from('contacts')
+        .select('total_conversations')
+        .eq('id', contactId)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            supabaseAdmin
+              .from('contacts')
+              .update({ total_conversations: (data.total_conversations || 0) + 1 })
+              .eq('id', contactId)
+              .then(() => {})
+          }
+        })
+    }
+  })
+
   return created as Conversation
 }
 

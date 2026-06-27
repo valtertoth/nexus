@@ -421,3 +421,96 @@ export function isServiceWindowActive(expiresAt: string | null): boolean {
   if (!expiresAt) return false
   return new Date(expiresAt) > new Date()
 }
+
+// --- Templates ---
+
+export interface MessageTemplate {
+  name: string
+  language: string
+  status: string
+  category: string
+  id: string
+  components: Array<{
+    type: string
+    text?: string
+    format?: string
+    buttons?: Array<{ type: string; text: string; url?: string; phone_number?: string }>
+    example?: Record<string, unknown>
+  }>
+}
+
+export async function listTemplates(orgId: string): Promise<MessageTemplate[]> {
+  const { accessToken } = await getOrgCredentials(orgId)
+
+  const { data: org } = await supabaseAdmin
+    .from('organizations')
+    .select('wa_business_account_id')
+    .eq('id', orgId)
+    .single()
+
+  const wabaid = org?.wa_business_account_id || process.env.WA_BUSINESS_ACCOUNT_ID
+  if (!wabaid) {
+    throw new Error('WA_BUSINESS_ACCOUNT_ID nao configurado')
+  }
+
+  const response = await fetch(
+    `${GRAPH_API_URL}/${wabaid}/message_templates?limit=100&status=APPROVED`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(15_000),
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to list templates: ${response.status}`)
+  }
+
+  const data = await response.json() as { data: MessageTemplate[] }
+  return data.data || []
+}
+
+export async function sendTemplateMessage(
+  orgId: string,
+  to: string,
+  templateName: string,
+  languageCode: string,
+  components?: Array<Record<string, unknown>>
+): Promise<CloudApiResponse> {
+  const { phoneNumberId, accessToken } = await getOrgCredentials(orgId)
+
+  const payload: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+      ...(components && components.length > 0 ? { components } : {}),
+    },
+  }
+
+  const response = await fetch(
+    `${GRAPH_API_URL}/${phoneNumberId}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30_000),
+    }
+  )
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
+    if (response.status === 401 || response.status === 403) {
+      invalidateCredentialsCache(orgId)
+    }
+    throw new Error(`Template send failed: ${JSON.stringify(error)}`)
+  }
+
+  const result = await response.json() as CloudApiResponse
+  console.log(`[WhatsApp] template "${templateName}" sent — to=${to}, waMessageId=${result.messages?.[0]?.id}`)
+  return result
+}

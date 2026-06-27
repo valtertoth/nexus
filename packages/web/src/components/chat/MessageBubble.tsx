@@ -1,7 +1,8 @@
-import { useState, useRef, memo } from 'react'
+import { useState, useRef, memo, useMemo } from 'react'
 import { cn } from '@/lib/utils'
-import { Check, CheckCheck, Clock, AlertCircle, RefreshCw, Sparkles, FileText, Download, Play, MapPin, User, Video, X, Mic } from 'lucide-react'
+import { Check, CheckCheck, Clock, AlertCircle, RefreshCw, Sparkles, FileText, Download, Play, MapPin, User, Video, X, Mic, Reply } from 'lucide-react'
 import { format } from 'date-fns'
+import { useMessageStore } from '@/stores/messageStore'
 import type { Message } from '@nexus/shared'
 
 interface MessageBubbleProps {
@@ -19,6 +20,13 @@ export const MessageBubble = memo(function MessageBubble({ message, onRetry }: M
   const isAiApproved = message.ai_approved === true
   const isMedia = MEDIA_TYPES.has(message.content_type)
   const isSticker = message.content_type === 'sticker'
+
+  const replyToId = message.reply_to_message_id
+  const allMessages = useMessageStore((s) => s.messages[message.conversation_id])
+  const quotedMessage = useMemo(() => {
+    if (!replyToId || !allMessages) return null
+    return allMessages.find((m) => m.id === replyToId || m.wa_message_id === replyToId) ?? null
+  }, [replyToId, allMessages])
 
   if (isSystem) {
     return (
@@ -39,6 +47,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onRetry }: M
     return (
       <div className={cn('flex mb-2', isContact ? 'justify-start' : 'justify-end')}>
         <div className="max-w-[70%] relative group">
+          {quotedMessage && <QuotedReply quoted={quotedMessage} isContact={isContact} isMedia={false} />}
           <MessageContent message={message} isContact={isContact} />
           <div className="flex items-center gap-1.5 mt-0.5 justify-end">
             <span className="text-xs text-zinc-400">{time}</span>
@@ -83,6 +92,9 @@ export const MessageBubble = memo(function MessageBubble({ message, onRetry }: M
             message.wa_status === 'pending' && 'opacity-70',
           )}
         >
+          {/* Quoted reply context */}
+          {quotedMessage && <QuotedReply quoted={quotedMessage} isContact={isContact} isMedia={isMedia} />}
+
           {/* Content by type */}
           <MessageContent message={message} isContact={isContact} />
 
@@ -146,9 +158,56 @@ export const MessageBubble = memo(function MessageBubble({ message, onRetry }: M
     prev.message.wa_status === next.message.wa_status &&
     prev.message.content === next.message.content &&
     prev.message.media_url === next.message.media_url &&
-    prev.message.ai_suggested_response === next.message.ai_suggested_response
+    prev.message.ai_suggested_response === next.message.ai_suggested_response &&
+    prev.message.reply_to_message_id === next.message.reply_to_message_id
   )
 })
+
+function QuotedReply({ quoted, isContact, isMedia }: { quoted: Message; isContact: boolean; isMedia: boolean }) {
+  const isQuotedContact = quoted.sender_type === 'contact'
+  const label = isQuotedContact ? (quoted.content ? '' : 'Contato') : 'Você'
+  const previewText = getQuotePreview(quoted)
+
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-2 rounded-lg mb-1 cursor-pointer',
+        isMedia ? 'mx-2 mt-2' : '',
+        isContact
+          ? 'bg-zinc-200/60 border-l-2 border-zinc-400'
+          : 'bg-zinc-800/60 border-l-2 border-zinc-500',
+      )}
+      style={{ padding: '6px 8px' }}
+    >
+      <Reply className={cn('w-3 h-3 mt-0.5 shrink-0 rotate-180', isContact ? 'text-zinc-400' : 'text-zinc-500')} />
+      <div className="min-w-0 flex-1">
+        {label && (
+          <span className={cn('text-[11px] font-medium block', isContact ? 'text-zinc-500' : 'text-zinc-400')}>
+            {label}
+          </span>
+        )}
+        <p className={cn('text-xs truncate', isContact ? 'text-zinc-600' : 'text-zinc-400')}>
+          {previewText}
+        </p>
+      </div>
+      {quoted.content_type === 'image' && quoted.media_url && (
+        <img src={quoted.media_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
+      )}
+    </div>
+  )
+}
+
+function getQuotePreview(msg: Message): string {
+  if (msg.content_type === 'image') return msg.content?.split('\n')[0] || 'Imagem'
+  if (msg.content_type === 'audio') return 'Audio'
+  if (msg.content_type === 'video') return 'Video'
+  if (msg.content_type === 'document') return msg.media_filename || 'Documento'
+  if (msg.content_type === 'sticker') return 'Sticker'
+  if (msg.content_type === 'location') return 'Localizacao'
+  if (msg.content_type === 'contact') return 'Contato'
+  const text = msg.content || ''
+  return text.length > 120 ? text.slice(0, 120) + '...' : text
+}
 
 function StatusIcon({ status }: { status?: string | null }) {
   return (
@@ -461,7 +520,10 @@ function MediaPlaceholder({ icon, label, isContact }: { icon: string; label: str
       )}>
         <IconComponent className="w-4 h-4" />
       </div>
-      <span className="text-sm">{label}</span>
+      <div className="flex flex-col">
+        <span className="text-sm">{label}</span>
+        <span className="text-xs opacity-60">Midia indisponivel</span>
+      </div>
     </div>
   )
 }
