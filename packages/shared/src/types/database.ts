@@ -387,8 +387,8 @@ export interface Message {
   wa_media_id: string | null
   wa_status: WaMessageStatus
   wa_timestamp: string | null
-  wa_error_code: string | null
-  wa_error_message: string | null
+  wa_error_code?: string | null
+  wa_error_message?: string | null
   ai_suggested_response: string | null
   ai_suggestion_sources: AiSuggestionSource[] | null
   ai_approved: boolean | null
