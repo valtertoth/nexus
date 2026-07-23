@@ -66,7 +66,7 @@ export default function Login() {
             <Zap className="w-5 h-5 text-white" />
           </div>
           <span className="text-2xl font-bold tracking-tight text-zinc-900">
-            Nexus
+            Central
           </span>
         </div>
 
@@ -196,7 +196,7 @@ export default function Login() {
         </Card>
 
         <p className="text-center text-xs text-zinc-400 mt-6">
-          Nexus — Atendimento inteligente via WhatsApp
+          Central Toth — Atendimento inteligente via WhatsApp
         </p>
       </div>
     </div>

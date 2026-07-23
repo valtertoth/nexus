@@ -295,7 +295,7 @@ export default function Simulator() {
         {/* Footer info */}
         <div className="px-4 py-3 border-t" style={{ borderColor: '#2a3942' }}>
           <p className="text-[10px] leading-relaxed" style={{ color: '#8696a0' }}>
-            Mensagens enviadas aqui chegam ao Nexus como se fossem de um cliente real via WhatsApp.
+            Mensagens enviadas aqui chegam a Central como se fossem de um cliente real via WhatsApp.
           </p>
           <a
             href="/"
@@ -305,7 +305,7 @@ export default function Simulator() {
             style={{ color: '#00a884' }}
           >
             <ExternalLink className="w-3 h-3" />
-            Abrir Nexus Inbox
+            Abrir Inbox da Central
           </a>
         </div>
       </div>
@@ -340,7 +340,7 @@ export default function Simulator() {
             <div className="flex items-center justify-center h-full">
               <div className="text-xs px-4 py-2 rounded-lg text-center max-w-xs"
                 style={{ backgroundColor: '#182229', color: '#8696a0' }}>
-                Envie uma mensagem para iniciar o atendimento no Nexus
+                Envie uma mensagem para iniciar o atendimento na Central
               </div>
             </div>
           )}
@@ -363,7 +363,7 @@ export default function Simulator() {
                 >
                   {!isContact && (
                     <p className="text-[10px] font-medium mb-0.5" style={{ color: '#00a884' }}>
-                      Agente — Nexus
+                      Agente — Central
                     </p>
                   )}
                   <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#e9edef' }}>

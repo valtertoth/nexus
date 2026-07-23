@@ -33,7 +33,7 @@ export default function Onboarding() {
         <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
           <Brain className="w-4 h-4 text-violet-500" />
         </div>
-        <span className="text-sm font-semibold text-zinc-200 tracking-tight">Nexus</span>
+        <span className="text-sm font-semibold text-zinc-200 tracking-tight">Central</span>
         <span className="text-xs text-zinc-600">|</span>
         <span className="text-xs text-zinc-500">Configuracao inicial</span>
       </header>

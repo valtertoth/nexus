@@ -191,8 +191,8 @@ export function IntegrationsTab() {
                 <ol className="text-xs text-zinc-500 space-y-1.5 list-decimal list-inside">
                   <li>Copie a API Key acima</li>
                   <li>Abra o painel do Intelligence</li>
-                  <li>Va em Integracoes e cole a chave no campo "Nexus API Key"</li>
-                  <li>Informe a URL do servidor Nexus (ex: <code className="text-zinc-700 bg-zinc-100 px-1 rounded">https://seu-servidor.com</code>)</li>
+                  <li>Va em Integracoes e cole a chave no campo "Central API Key"</li>
+                  <li>Informe a URL do servidor da Central (ex: <code className="text-zinc-700 bg-zinc-100 px-1 rounded">https://seu-servidor.com</code>)</li>
                   <li>Clique em "Conectar" — o Intelligence vai testar automaticamente</li>
                 </ol>
               </div>

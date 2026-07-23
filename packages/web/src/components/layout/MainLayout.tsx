@@ -33,7 +33,7 @@ export function MainLayout() {
 
   // Update tab title with unread count
   useEffect(() => {
-    document.title = totalUnread > 0 ? `(${totalUnread}) Nexus` : 'Nexus'
+    document.title = totalUnread > 0 ? `(${totalUnread}) Central` : 'Central'
   }, [totalUnread])
 
   return (

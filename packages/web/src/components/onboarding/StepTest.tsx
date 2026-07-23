@@ -9,7 +9,7 @@ interface StepTestProps {
 
 export function StepTest({ onComplete }: StepTestProps) {
   const [phone, setPhone] = useState('')
-  const [message, setMessage] = useState('Ola! Esta e uma mensagem de teste do Nexus. Se voce recebeu, tudo esta funcionando! 🚀')
+  const [message, setMessage] = useState('Ola! Esta e uma mensagem de teste da Central. Se voce recebeu, tudo esta funcionando! 🚀')
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [error, setError] = useState('')
 

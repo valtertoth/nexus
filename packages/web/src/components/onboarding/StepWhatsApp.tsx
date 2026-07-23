@@ -66,7 +66,7 @@ export function StepWhatsApp({ onComplete }: StepWhatsAppProps) {
 
       <h2 className="text-xl font-semibold text-zinc-100 mb-2">Conectar WhatsApp</h2>
       <p className="text-sm text-zinc-400 mb-8 text-center max-w-md">
-        Vincule o WhatsApp do seu negocio ao Nexus escaneando o QR Code.
+        Vincule o WhatsApp do seu negocio a Central escaneando o QR Code.
       </p>
 
       <div className="w-full max-w-sm">

@@ -103,7 +103,7 @@ export default function WhatsAppConnect() {
             Conexao WhatsApp
           </h1>
           <p className="text-sm text-zinc-400 mt-2">
-            Conecte o WhatsApp ao Nexus via QR Code
+            Conecte o WhatsApp a Central via QR Code
           </p>
         </div>
 
@@ -191,7 +191,7 @@ export default function WhatsAppConnect() {
               </Button>
               <p className="text-xs text-zinc-500 text-center">
                 Voce precisara escanear um QR Code com o WhatsApp do celular.
-                O Nexus funcionara como um dispositivo vinculado.
+                A Central funcionara como um dispositivo vinculado.
               </p>
             </div>
           )}

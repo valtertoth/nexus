@@ -84,7 +84,7 @@ export function Sidebar() {
         </div>
         {expanded && (
           <span className="ml-2.5 text-sm font-bold text-white tracking-tight">
-            Nexus
+            Central
           </span>
         )}
       </div>

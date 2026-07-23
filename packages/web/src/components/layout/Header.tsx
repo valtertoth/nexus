@@ -21,7 +21,7 @@ export function Header() {
   const location = useLocation()
   const { profile } = useAuthContext()
   const { isUserOnline } = usePresence()
-  const title = pageTitles[location.pathname] ?? 'Nexus'
+  const title = pageTitles[location.pathname] ?? 'Central'
   const amOnline = profile ? isUserOnline(profile.id) : false
 
   // Hide on Inbox — the chat has its own header

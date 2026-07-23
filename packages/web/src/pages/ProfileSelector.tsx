@@ -181,7 +181,7 @@ export default function ProfileSelector() {
             <Zap className="w-5 h-5 text-white" />
           </div>
           <span className="text-2xl font-bold tracking-tight text-zinc-900">
-            Nexus
+            Central
           </span>
         </div>
 
@@ -296,7 +296,7 @@ export default function ProfileSelector() {
         )}
 
         <p className="text-center text-xs text-zinc-400 mt-4">
-          Nexus — Atendimento inteligente via WhatsApp
+          Central Toth — Atendimento inteligente via WhatsApp
         </p>
       </div>
 

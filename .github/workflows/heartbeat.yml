@@ -1,0 +1,23 @@
+name: Heartbeat Central
+
+# Vigia a Central de hora em hora. Se /health falhar, o workflow FALHA e o
+# GitHub envia e-mail ao dono do repo — alerta de "webhook parou" sem serviço extra.
+# (Railway ja se auto-recupera de crash via healthcheck; isto pega quedas longas.)
+
+on:
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checar /health
+        run: |
+          set -e
+          body=$(curl -sS --max-time 20 https://central.tothmoveis.com.br/health)
+          echo "$body"
+          echo "$body" | grep -q '"status":"ok"' || { echo '::error::Central /health NAO esta ok'; exit 1; }
+          echo "$body" | grep -q '"db":{"status":"connected"' || { echo '::error::Banco desconectado'; exit 1; }
