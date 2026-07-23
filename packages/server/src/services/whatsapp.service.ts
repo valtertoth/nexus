@@ -420,6 +420,16 @@ export async function sendMediaMessage(
   filename?: string,
   caption?: string
 ): Promise<CloudApiResponse> {
+  // Meta only fetches media over HTTPS. An http:// (or storage-path fallback) link
+  // fails with an opaque error — surface a clear, structured error instead.
+  if (!/^https:\/\//i.test(mediaUrl)) {
+    throw new WhatsAppSendError(
+      0,
+      null,
+      `Link de mídia inválido para envio (precisa ser HTTPS): ${mediaUrl.slice(0, 80)}`
+    )
+  }
+
   const mediaPayload: Record<string, unknown> = { link: mediaUrl }
   if (caption && ['image', 'video', 'document'].includes(mediaType)) {
     mediaPayload.caption = caption
@@ -427,9 +437,10 @@ export async function sendMediaMessage(
   if (mediaType === 'document' && filename) {
     mediaPayload.filename = filename
   }
-  // WhatsApp Cloud API only accepts mime_type for sticker type (not document)
+  // WhatsApp Cloud API only accepts mime_type for sticker type (not document).
+  // Strip codec params ("image/webp; ...") — Meta rejects a parametrized mime here.
   if (mimeType && mediaType === 'sticker') {
-    mediaPayload.mime_type = mimeType
+    mediaPayload.mime_type = mimeType.split(';')[0].trim()
   }
 
   console.log(`[WhatsApp] sending ${mediaType} — to=${to}, orgId=${orgId}, mime=${mimeType}`)

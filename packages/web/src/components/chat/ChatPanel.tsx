@@ -10,8 +10,11 @@ import { AiComposer } from './AiComposer'
 import { QuoteBuilder } from './QuoteBuilder'
 import { TemplatePicker } from './TemplatePicker'
 import { NotesPanel } from './NotesPanel'
+import { ContactInfoPanel } from './ContactInfoPanel'
 import { FollowupButton } from '@/components/followups/FollowupButton'
-import { Loader2, Upload, Clock, FileText, StickyNote } from 'lucide-react'
+import { resolveMedia } from '@/lib/mediaRules'
+import { toast } from 'sonner'
+import { Loader2, Upload, Clock, FileText, StickyNote, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatPhone } from '@nexus/shared'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
@@ -70,6 +73,7 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
   const [quoteOpen, setQuoteOpen] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
+  const [contactOpen, setContactOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isNearBottomRef = useRef(true)
   const prevMessageCountRef = useRef<number>(0)
@@ -194,12 +198,10 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
     const file = e.dataTransfer.files?.[0]
     if (!file || !sendMedia) return
 
-    const contentType = file.type.startsWith('image/') ? 'image'
-      : file.type.startsWith('video/') ? 'video'
-      : file.type.startsWith('audio/') ? 'audio'
-      : 'document' as const
+    const { category, error } = resolveMedia(file)
+    if (error) { toast.error(error); return }
 
-    sendMedia(file, contentType)
+    sendMedia(file, category)
   }, [sendMedia])
 
   const handleSend = useCallback((content: string) => {
@@ -266,7 +268,14 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
         <div className="flex items-center justify-end gap-1 px-3 py-1 border-b border-zinc-100 bg-white">
           <FollowupButton conversationId={conversation.id} />
           <button
-            onClick={() => setNotesOpen((v) => !v)}
+            onClick={() => { setContactOpen((v) => !v); setNotesOpen(false) }}
+            className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${contactOpen ? 'bg-zinc-200 text-zinc-900' : 'text-zinc-500 hover:bg-zinc-100'}`}
+          >
+            <User className="w-3.5 h-3.5" />
+            Cliente
+          </button>
+          <button
+            onClick={() => { setNotesOpen((v) => !v); setContactOpen(false) }}
             className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${notesOpen ? 'bg-zinc-200 text-zinc-900' : 'text-zinc-500 hover:bg-zinc-100'}`}
           >
             <StickyNote className="w-3.5 h-3.5" />
@@ -367,6 +376,15 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
         open={notesOpen}
         onClose={() => setNotesOpen(false)}
       />
+
+      {/* Painel de informações do cliente (ponte Shopify) */}
+      {conversation.contact?.id && (
+        <ContactInfoPanel
+          contactId={conversation.contact.id}
+          open={contactOpen}
+          onClose={() => setContactOpen(false)}
+        />
+      )}
 
       {/* Template Picker (para janela expirada) */}
       <TemplatePicker

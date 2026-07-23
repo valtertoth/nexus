@@ -1,7 +1,9 @@
-import { useState, useRef, memo, useMemo } from 'react'
+import { useState, useRef, memo, useMemo, useCallback } from 'react'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Check, CheckCheck, Clock, AlertCircle, RefreshCw, Sparkles, FileText, Download, Play, MapPin, User, Video, X, Mic, Reply } from 'lucide-react'
 import { format } from 'date-fns'
+import { api } from '@/lib/api'
 import { useMessageStore } from '@/stores/messageStore'
 import type { Message } from '@nexus/shared'
 
@@ -242,9 +244,9 @@ function MessageContent({ message, isContact }: { message: Message; isContact: b
   // Image
   if (type === 'image') {
     if (message.media_url) {
-      return <ImageContent url={message.media_url} />
+      return <ImageContent url={message.media_url} isContact={isContact} messageId={message.id} waMediaId={message.wa_media_id} />
     }
-    return <MediaPlaceholder icon="image" label="Imagem" isContact={isContact} />
+    return <MediaPlaceholder icon="image" label="Imagem" isContact={isContact} messageId={message.id} waMediaId={message.wa_media_id} />
   }
 
   // Audio — WhatsApp-style custom player (transcription is internal, used by AI context only)
@@ -258,23 +260,15 @@ function MessageContent({ message, isContact }: { message: Message; isContact: b
         />
       )
     }
-    return <MediaPlaceholder icon="audio" label="Áudio" isContact={isContact} />
+    return <MediaPlaceholder icon="audio" label="Áudio" isContact={isContact} messageId={message.id} waMediaId={message.wa_media_id} />
   }
 
   // Video
   if (type === 'video') {
     if (message.media_url) {
-      return (
-        <video
-          controls
-          preload="metadata"
-          className="max-w-full max-h-72 w-full"
-        >
-          <source src={message.media_url} type={message.media_mime_type || 'video/mp4'} />
-        </video>
-      )
+      return <VideoContent url={message.media_url} mimeType={message.media_mime_type} isContact={isContact} messageId={message.id} waMediaId={message.wa_media_id} />
     }
-    return <MediaPlaceholder icon="video" label="Vídeo" isContact={isContact} />
+    return <MediaPlaceholder icon="video" label="Vídeo" isContact={isContact} messageId={message.id} waMediaId={message.wa_media_id} />
   }
 
   // Sticker — no bubble, just the image
@@ -285,10 +279,11 @@ function MessageContent({ message, isContact }: { message: Message; isContact: b
           src={message.media_url}
           alt="Sticker"
           className="w-36 h-36 object-contain"
+          loading="lazy"
         />
       )
     }
-    return <MediaPlaceholder icon="sticker" label="Sticker" isContact={isContact} />
+    return <MediaPlaceholder icon="sticker" label="Sticker" isContact={isContact} messageId={message.id} waMediaId={message.wa_media_id} />
   }
 
   // Document
@@ -328,6 +323,8 @@ function MessageContent({ message, isContact }: { message: Message; isContact: b
           >
             <Download className={cn('w-4 h-4', isContact ? 'text-zinc-500' : 'text-zinc-300')} />
           </a>
+        ) : message.wa_media_id ? (
+          <ReloadMediaButton messageId={message.id} isContact={isContact} compact />
         ) : null}
       </div>
     )
@@ -362,18 +359,30 @@ function MessageContent({ message, isContact }: { message: Message; isContact: b
 }
 
 // ─── Image with lightbox ────────────────────────────────────────────
-function ImageContent({ url }: { url: string }) {
+function ImageContent({ url, isContact, messageId, waMediaId }: { url: string; isContact: boolean; messageId: string; waMediaId?: string | null }) {
   const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [errored, setErrored] = useState(false)
+
+  // A broken/expired signed URL must never leave a broken <img> in the thread.
+  if (errored) {
+    return <MediaPlaceholder icon="image" label="Imagem" isContact={isContact} messageId={messageId} waMediaId={waMediaId} />
+  }
 
   return (
     <>
-      <img
-        src={url}
-        alt="Imagem"
-        className="max-w-full max-h-72 w-full object-cover cursor-pointer"
-        loading="lazy"
-        onClick={() => setLightboxOpen(true)}
-      />
+      {/* Reserve a min height while loading so the thread doesn't jump (no layout shift). */}
+      <div className={cn('relative w-full', !loaded && 'min-h-[140px]', isContact ? 'bg-zinc-200/50' : 'bg-zinc-800/50')}>
+        <img
+          src={url}
+          alt="Imagem"
+          className="max-w-full max-h-72 w-full object-cover cursor-pointer block"
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          onError={() => setErrored(true)}
+          onClick={() => setLightboxOpen(true)}
+        />
+      </div>
 
       {/* Lightbox overlay */}
       {lightboxOpen && (
@@ -396,6 +405,81 @@ function ImageContent({ url }: { url: string }) {
         </div>
       )}
     </>
+  )
+}
+
+// ─── Video with error fallback + reserved space ─────────────────────
+function VideoContent({ url, mimeType, isContact, messageId, waMediaId }: { url: string; mimeType?: string | null; isContact: boolean; messageId: string; waMediaId?: string | null }) {
+  const [errored, setErrored] = useState(false)
+
+  if (errored) {
+    return <MediaPlaceholder icon="video" label="Vídeo" isContact={isContact} messageId={messageId} waMediaId={waMediaId} />
+  }
+
+  return (
+    <video
+      controls
+      preload="metadata"
+      className="max-w-full max-h-72 w-full min-h-[140px] bg-black block"
+      onError={() => setErrored(true)}
+    >
+      <source src={url} type={mimeType || 'video/mp4'} />
+    </video>
+  )
+}
+
+// ─── Re-download media from WhatsApp (media_url null but wa_media_id present) ──
+function ReloadMediaButton({ messageId, isContact, compact }: { messageId: string; isContact: boolean; compact?: boolean }) {
+  const [loading, setLoading] = useState(false)
+
+  const reload = useCallback(async () => {
+    if (loading) return
+    setLoading(true)
+    try {
+      // Bulk endpoint re-downloads all pending media for the org; a realtime UPDATE
+      // then fills media_url on this bubble automatically.
+      const res = await api.post<{ retried: number; success: number; failed: number }>('/api/messages/retry-media')
+      if (res.success > 0) {
+        toast.success('Mídia recarregada.')
+      } else if (res.retried === 0) {
+        toast.info('Nenhuma mídia pendente para recarregar.')
+      } else {
+        toast.error('Não foi possível recarregar a mídia.')
+      }
+    } catch {
+      toast.error('Falha ao recarregar mídia.')
+    } finally {
+      setLoading(false)
+    }
+    // messageId kept for a future per-message endpoint; harmless here.
+    void messageId
+  }, [loading, messageId])
+
+  if (compact) {
+    return (
+      <button
+        onClick={reload}
+        disabled={loading}
+        className={cn('p-1.5 rounded-lg transition-colors shrink-0', isContact ? 'hover:bg-zinc-200' : 'hover:bg-zinc-700')}
+        aria-label="Recarregar mídia"
+      >
+        <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin', isContact ? 'text-zinc-500' : 'text-zinc-300')} />
+      </button>
+    )
+  }
+
+  return (
+    <button
+      onClick={reload}
+      disabled={loading}
+      className={cn(
+        'mt-1 inline-flex items-center gap-1 text-xs transition-colors',
+        isContact ? 'text-zinc-500 hover:text-zinc-700' : 'text-zinc-300 hover:text-white'
+      )}
+    >
+      <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
+      {loading ? 'Recarregando…' : 'Recarregar mídia'}
+    </button>
   )
 }
 
@@ -503,11 +587,14 @@ const AudioPlayer = memo(function AudioPlayer({ url, mimeType, isContact }: { ur
 })
 
 // ─── Placeholders ───────────────────────────────────────────────────
-function MediaPlaceholder({ icon, label, isContact }: { icon: string; label: string; isContact: boolean }) {
+function MediaPlaceholder({ icon, label, isContact, messageId, waMediaId }: { icon: string; label: string; isContact: boolean; messageId?: string; waMediaId?: string | null }) {
   const IconComponent = icon === 'audio' ? Mic
     : icon === 'video' ? Video
     : icon === 'sticker' ? Sparkles
     : Play
+
+  // Recoverable when we still hold the WhatsApp media id — offer a manual re-download.
+  const canReload = !!(messageId && waMediaId)
 
   return (
     <div className={cn(
@@ -515,14 +602,18 @@ function MediaPlaceholder({ icon, label, isContact }: { icon: string; label: str
       isContact ? 'text-zinc-500' : 'text-zinc-400'
     )}>
       <div className={cn(
-        'w-10 h-10 rounded-full flex items-center justify-center',
+        'w-10 h-10 rounded-full flex items-center justify-center shrink-0',
         isContact ? 'bg-zinc-200' : 'bg-zinc-700'
       )}>
         <IconComponent className="w-4 h-4" />
       </div>
-      <div className="flex flex-col">
+      <div className="flex flex-col min-w-0">
         <span className="text-sm">{label}</span>
-        <span className="text-xs opacity-60">Midia indisponivel</span>
+        {canReload ? (
+          <ReloadMediaButton messageId={messageId!} isContact={isContact} />
+        ) : (
+          <span className="text-xs opacity-60">Midia indisponivel</span>
+        )}
       </div>
     </div>
   )

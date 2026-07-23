@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { requireUUID } from '../lib/validate.js'
+import { enrichContact } from '../services/contact-enrich.service.js'
 
 type AuthVars = { Variables: { userId: string; orgId: string; userRole: string } }
 
@@ -64,6 +65,19 @@ contacts.get('/:id', async (c) => {
     .limit(20)
 
   return c.json({ contact, conversations: conversations || [] })
+})
+
+// GET /api/contacts/:id/enrich — Enriched contact view (local + live Shopify)
+contacts.get('/:id/enrich', async (c) => {
+  const orgId = c.get('orgId')
+  const contactId = requireUUID(c.req.param('id'), 'id')
+
+  const enriched = await enrichContact(orgId, contactId)
+  if (!enriched) {
+    return c.json({ error: 'Contato nao encontrado' }, 404)
+  }
+
+  return c.json({ contact: enriched })
 })
 
 // PATCH /api/contacts/:id — Update contact fields

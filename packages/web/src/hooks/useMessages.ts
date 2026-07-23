@@ -338,6 +338,42 @@ export function useMessages(conversationId: string | null) {
   ) => {
     if (!conversationId) return
 
+    // 1. Bolha otimista — a mídia aparece na hora (paridade WhatsApp) e vira
+    //    'failed' com motivo se o envio falhar.
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const localUrl = URL.createObjectURL(file)
+    const optimisticMsg: Message = {
+      id: tempId,
+      conversation_id: conversationId,
+      org_id: '',
+      sender_type: 'agent',
+      sender_id: null,
+      content: caption?.trim() || '',
+      content_type: contentType,
+      media_url: localUrl,
+      media_original_url: null,
+      media_mime_type: file.type || null,
+      media_filename: file.name || null,
+      media_size: file.size || null,
+      wa_message_id: null,
+      wa_media_id: null,
+      wa_status: 'pending',
+      wa_timestamp: null,
+      ai_suggested_response: null,
+      ai_suggestion_sources: null,
+      ai_approved: null,
+      ai_edited: false,
+      ai_original_suggestion: null,
+      ai_model_used: null,
+      ai_tokens_used: null,
+      ai_latency_ms: null,
+      is_internal_note: false,
+      reply_to_message_id: null,
+      metadata: {},
+      created_at: new Date().toISOString(),
+    }
+    addMessage(conversationId, optimisticMsg)
+
     setSendingMessage(conversationId, true)
     try {
       const formData = new FormData()
@@ -346,16 +382,20 @@ export function useMessages(conversationId: string | null) {
       formData.append('file', file)
       if (caption) formData.append('caption', caption)
 
-      await api.post('/api/messages/send-media', formData)
+      // Timeout generoso: documento até 100MB em rede lenta não pode abortar em 15s.
+      await api.post('/api/messages/send-media', formData, { timeout: 120_000 })
 
       clearAiSuggestion()
     } catch (err) {
+      updateMessage(conversationId, tempId, { wa_status: 'failed' } as Partial<Message>)
       const message = err instanceof Error ? err.message : 'Falha ao enviar mídia'
       toast.error(message)
     } finally {
       setSendingMessage(conversationId, false)
+      // Libera o object URL depois que o realtime já trouxe a mídia real.
+      setTimeout(() => URL.revokeObjectURL(localUrl), 30_000)
     }
-  }, [conversationId, setSendingMessage, clearAiSuggestion])
+  }, [conversationId, addMessage, updateMessage, setSendingMessage, clearAiSuggestion])
 
   // Retry a failed message
   const retryMessage = useCallback(async (message: Message) => {
