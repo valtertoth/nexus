@@ -109,6 +109,13 @@ export interface WebhookStatus {
   status: 'sent' | 'delivered' | 'read' | 'failed'
   timestamp: string
   recipient_id: string
+  // Meta anexa o objeto conversation (com expiration_timestamp em Unix seconds) no
+  // primeiro status de uma janela de serviço — fonte autoritativa da janela de 24h.
+  conversation?: {
+    id?: string
+    expiration_timestamp?: string
+    origin?: { type?: string }
+  }
   errors?: {
     code: number
     title: string

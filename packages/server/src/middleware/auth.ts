@@ -3,7 +3,14 @@ import { supabaseAdmin } from '../lib/supabase.js'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'agent' | 'viewer'
+export type UserRole = 'owner' | 'admin' | 'agent'
+
+// Hierarquia de papéis: owner > admin(gerente) > agent
+const ROLE_RANK: Record<UserRole, number> = {
+  agent: 0,
+  admin: 1,
+  owner: 2,
+}
 
 type AuthVariables = {
   userId: string
@@ -39,9 +46,12 @@ function authError(status: 401 | 403, code: string, message: string) {
 // ── Role gate ─────────────────────────────────────────────────────────────
 
 export function requireRole(...allowed: UserRole[]) {
+  // Gate hierárquico: exige rank >= ao menor rank permitido.
+  // requireRole('admin') libera admin E owner (owner herda poderes de admin).
+  const minRank = Math.min(...allowed.map((r) => ROLE_RANK[r]))
   return createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {
     const role = c.get('userRole') as UserRole
-    if (!allowed.includes(role)) {
+    if (ROLE_RANK[role] === undefined || ROLE_RANK[role] < minRank) {
       return c.json({ error: { code: 'FORBIDDEN', message: 'Permissão insuficiente' } }, 403)
     }
     await next()

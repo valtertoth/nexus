@@ -8,7 +8,8 @@ import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
 import { AiComposer } from './AiComposer'
 import { QuoteBuilder } from './QuoteBuilder'
-import { Loader2, Upload } from 'lucide-react'
+import { TemplatePicker } from './TemplatePicker'
+import { Loader2, Upload, Clock, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatPhone } from '@nexus/shared'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
@@ -65,6 +66,7 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
   const [aiMode, setAiMode] = useState<AiMode>('dictated')
   const [composerInitialValue, setComposerInitialValue] = useState('')
   const [quoteOpen, setQuoteOpen] = useState(false)
+  const [templateOpen, setTemplateOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isNearBottomRef = useRef(true)
   const prevMessageCountRef = useRef<number>(0)
@@ -312,6 +314,23 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
           />
         )}
 
+        {/* Aviso de janela expirada + atalho para template */}
+        {isWindowExpired && (
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-amber-50 border-t border-amber-200">
+            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+            <p className="text-xs text-amber-800 flex-1 min-w-0">
+              Janela de 24h expirada — só é possível enviar um template aprovado.
+            </p>
+            <button
+              onClick={() => setTemplateOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition-colors shrink-0"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Enviar template
+            </button>
+          </div>
+        )}
+
         {/* Composer */}
         <MessageComposer
           onSend={handleSend}
@@ -326,6 +345,13 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
           }
         />
       </div>
+
+      {/* Template Picker (para janela expirada) */}
+      <TemplatePicker
+        conversationId={conversation.id}
+        open={templateOpen}
+        onClose={() => setTemplateOpen(false)}
+      />
 
       {/* Quote Builder (modal overlay) */}
       <QuoteBuilder

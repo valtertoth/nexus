@@ -33,10 +33,21 @@ export async function withRetry<T>(
 
 /**
  * Wrap a promise with a timeout deadline.
+ *
+ * Pass an optional AbortController to actually cancel the underlying work when
+ * the deadline is hit (e.g. abort a fetch instead of leaving it running and
+ * consuming memory). The signature stays backward-compatible — existing 3-arg
+ * callers are unaffected.
  */
-export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+export function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+  controller?: AbortController
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
+      if (controller) controller.abort()
       reject(new Error(`${label} timed out after ${ms}ms`))
     }, ms)
     promise

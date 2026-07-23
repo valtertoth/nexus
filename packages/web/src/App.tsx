@@ -1,14 +1,15 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'sonner'
+import { Loader2 } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { AuthProvider } from '@/components/auth/AuthProvider'
+import { AuthProvider, useAuthContext } from '@/components/auth/AuthProvider'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { MainLayout } from '@/components/layout/MainLayout'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
-import { useActiveProfile } from '@/stores/profileStore'
 import Login from '@/pages/Login'
 import ProfileSelector from '@/pages/ProfileSelector'
+import Team from '@/pages/Team'
 import Inbox from '@/pages/Inbox'
 import Contacts from '@/pages/Contacts'
 import Knowledge from '@/pages/Knowledge'
@@ -22,10 +23,18 @@ import Simulator from '@/pages/Simulator'
 import WhatsAppConnect from '@/pages/WhatsAppConnect'
 import Onboarding from '@/pages/Onboarding'
 
-function ProfileGuard({ children }: { children: React.ReactNode }) {
-  const activeProfile = useActiveProfile()
-  if (!activeProfile) {
-    return <Navigate to="/profile-select" replace />
+// Gate por papel: só owner/admin (gerente) acessam a página de Equipe.
+function RoleGuard({ children }: { children: React.ReactNode }) {
+  const { profile, loading } = useAuthContext()
+  if (loading || !profile) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-background">
+        <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+      </div>
+    )
+  }
+  if (profile.role !== 'owner' && profile.role !== 'admin') {
+    return <Navigate to="/" replace />
   }
   return <>{children}</>
 }
@@ -49,12 +58,10 @@ export default function App() {
                   <ProfileSelector />
                 </ProtectedRoute>
               } />
-              {/* Protected routes with layout — require active profile */}
+              {/* Protected routes with layout — require authenticated user */}
               <Route element={
                 <ProtectedRoute>
-                  <ProfileGuard>
-                    <MainLayout />
-                  </ProfileGuard>
+                  <MainLayout />
                 </ProtectedRoute>
               }>
                 <Route path="/" element={<ErrorBoundary><Inbox /></ErrorBoundary>} />
@@ -66,6 +73,7 @@ export default function App() {
                 <Route path="/attribution" element={<ErrorBoundary><Attribution /></ErrorBoundary>} />
                 <Route path="/brain" element={<ErrorBoundary><BrainPage /></ErrorBoundary>} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+                <Route path="/team" element={<ErrorBoundary><RoleGuard><Team /></RoleGuard></ErrorBoundary>} />
                 <Route path="/dev/simulator" element={<ErrorBoundary><Simulator /></ErrorBoundary>} />
                 <Route path="/dev/whatsapp" element={<ErrorBoundary><WhatsAppConnect /></ErrorBoundary>} />
               </Route>

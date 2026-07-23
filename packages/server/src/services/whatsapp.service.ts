@@ -34,6 +34,9 @@ interface ParsedStatus {
   timestamp: string
   errorCode?: number
   errorMessage?: string
+  // Fonte autoritativa da janela de 24h — Meta anexa no primeiro status da janela
+  conversationId?: string
+  conversationExpiresAt?: string // ISO, derivado de conversation.expiration_timestamp
 }
 
 // --- Parsing ---
@@ -138,6 +141,7 @@ export function parseWebhookPayload(body: WebhookPayload): {
       // Parse statuses
       if (value.statuses) {
         for (const status of value.statuses) {
+          const expTs = status.conversation?.expiration_timestamp
           result.statuses.push({
             messageId: status.id,
             status: status.status,
@@ -145,6 +149,10 @@ export function parseWebhookPayload(body: WebhookPayload): {
             timestamp: status.timestamp,
             errorCode: status.errors?.[0]?.code,
             errorMessage: status.errors?.[0]?.message,
+            conversationId: status.conversation?.id,
+            conversationExpiresAt: expTs
+              ? new Date(parseInt(expTs, 10) * 1000).toISOString()
+              : undefined,
           })
         }
       }
@@ -239,14 +247,92 @@ function invalidateCredentialsCache(orgId: string): void {
   }
 }
 
+/**
+ * Erro estruturado de envio da Cloud API — carrega o código/motivo devolvidos pela
+ * Meta (ex.: 131047 janela expirada, 131056 pair-rate, 470 fora da janela) para que a
+ * rota persista em messages.wa_error_code/message e devolva ao front.
+ */
+export class WhatsAppSendError extends Error {
+  readonly waErrorCode: number | null
+  readonly waErrorMessage: string | null
+  readonly httpStatus: number
+
+  constructor(httpStatus: number, waErrorCode: number | null, waErrorMessage: string | null) {
+    super(
+      `WhatsApp send failed (HTTP ${httpStatus}` +
+        `${waErrorCode != null ? `, code ${waErrorCode}` : ''}): ${waErrorMessage ?? 'unknown error'}`
+    )
+    this.name = 'WhatsAppSendError'
+    this.httpStatus = httpStatus
+    this.waErrorCode = waErrorCode
+    this.waErrorMessage = waErrorMessage
+  }
+}
+
+/**
+ * Função ÚNICA de envio (texto/mídia/template). Trata 429 honrando Retry-After UMA vez
+ * (retry inline, sem double-sleep — não relança para um retrier externo dormir de novo),
+ * invalida credencial em 401/403, e em qualquer outra falha lança WhatsAppSendError com o
+ * código/motivo da Meta.
+ */
+async function postGraphMessage(
+  orgId: string,
+  payload: Record<string, unknown>,
+  label: string
+): Promise<CloudApiResponse> {
+  const { phoneNumberId, accessToken } = await getOrgCredentials(orgId)
+  let retried429 = false
+
+  for (;;) {
+    const response = await fetch(`${GRAPH_API_URL}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30_000),
+    })
+
+    if (response.ok) {
+      const result = (await response.json()) as CloudApiResponse
+      console.log(`[WhatsApp] ${label} sent — waMessageId=${result.messages?.[0]?.id}`)
+      return result
+    }
+
+    const errorBody = (await response.json().catch(() => null)) as
+      | { error?: { code?: number; message?: string } }
+      | null
+    const waErrorCode = errorBody?.error?.code ?? null
+    const waErrorMessage = errorBody?.error?.message ?? `HTTP ${response.status}`
+
+    if (response.status === 401 || response.status === 403) {
+      invalidateCredentialsCache(orgId)
+    }
+
+    // Rate limit / pair-rate: espera o Retry-After (ou 5s) e tenta de novo UMA vez só.
+    if (response.status === 429 && !retried429) {
+      retried429 = true
+      const retryAfter = response.headers.get('retry-after')
+      const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000
+      console.warn(`[WhatsApp] ${label} rate limited (429) — waiting ${waitMs}ms then retrying once`)
+      await new Promise((r) => setTimeout(r, waitMs))
+      continue
+    }
+
+    console.error(
+      `[WhatsApp] ${label} failed — status=${response.status}, code=${waErrorCode}, message=${waErrorMessage}`
+    )
+    throw new WhatsAppSendError(response.status, waErrorCode, waErrorMessage)
+  }
+}
+
 export async function sendTextMessage(
   orgId: string,
   to: string,
   text: string,
   replyToMessageId?: string
 ): Promise<CloudApiResponse> {
-  const { phoneNumberId, accessToken } = await getOrgCredentials(orgId)
-
   console.log(`[WhatsApp] sending text — to=${to}, orgId=${orgId}${replyToMessageId ? `, replyTo=${replyToMessageId}` : ''}`)
 
   const payload: SendTextPayload = {
@@ -260,39 +346,7 @@ export async function sendTextMessage(
     payload.context = { message_id: replyToMessageId }
   }
 
-  const response = await fetch(
-    `${GRAPH_API_URL}/${phoneNumberId}/messages`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30_000),
-    }
-  )
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
-    // Invalidate cached credentials on auth errors so next call fetches fresh ones
-    if (response.status === 401 || response.status === 403) {
-      invalidateCredentialsCache(orgId)
-    }
-    if (response.status === 429) {
-      const retryAfter = response.headers.get('retry-after')
-      const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000
-      console.warn(`[WhatsApp] Rate limited (429) — waiting ${waitMs}ms then retrying`)
-      await new Promise(r => setTimeout(r, waitMs))
-      throw new Error(`WhatsApp API rate limited (429) — retry after wait`)
-    }
-    console.error(`[WhatsApp] send text failed — to=${to}, orgId=${orgId}, status=${response.status}, error=${JSON.stringify(error)}`)
-    throw new Error(`WhatsApp API error (${response.status}): ${JSON.stringify(error)}`)
-  }
-
-  const result = await response.json() as CloudApiResponse
-  console.log(`[WhatsApp] text sent — to=${to}, waMessageId=${result.messages?.[0]?.id}`)
-  return result
+  return postGraphMessage(orgId, payload as unknown as Record<string, unknown>, `text to ${to}`)
 }
 
 export async function markAsRead(
@@ -366,8 +420,6 @@ export async function sendMediaMessage(
   filename?: string,
   caption?: string
 ): Promise<CloudApiResponse> {
-  const { phoneNumberId, accessToken } = await getOrgCredentials(orgId)
-
   const mediaPayload: Record<string, unknown> = { link: mediaUrl }
   if (caption && ['image', 'video', 'document'].includes(mediaType)) {
     mediaPayload.caption = caption
@@ -389,32 +441,7 @@ export async function sendMediaMessage(
     [mediaType]: mediaPayload,
   }
 
-  const response = await fetch(
-    `${GRAPH_API_URL}/${phoneNumberId}/messages`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30_000),
-    }
-  )
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
-    // Invalidate cached credentials on auth errors so next call fetches fresh ones
-    if (response.status === 401 || response.status === 403) {
-      invalidateCredentialsCache(orgId)
-    }
-    console.error(`[WhatsApp] send ${mediaType} failed — to=${to}, orgId=${orgId}, error=${JSON.stringify(error)}`)
-    throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`)
-  }
-
-  const result = await response.json() as CloudApiResponse
-  console.log(`[WhatsApp] ${mediaType} sent — to=${to}, waMessageId=${result.messages?.[0]?.id}`)
-  return result
+  return postGraphMessage(orgId, payload, `${mediaType} to ${to}`)
 }
 
 export function isServiceWindowActive(expiresAt: string | null): boolean {
@@ -439,7 +466,17 @@ export interface MessageTemplate {
   }>
 }
 
+// Cache de templates aprovados por org (10 min) — evita bater no Graph a cada abertura
+// do TemplatePicker.
+const templatesCache = new Map<string, { data: MessageTemplate[]; cachedAt: number }>()
+const TEMPLATES_TTL_MS = 10 * 60 * 1000 // 10 minutes
+
 export async function listTemplates(orgId: string): Promise<MessageTemplate[]> {
+  const cached = templatesCache.get(orgId)
+  if (cached && Date.now() - cached.cachedAt < TEMPLATES_TTL_MS) {
+    return cached.data
+  }
+
   const { accessToken } = await getOrgCredentials(orgId)
 
   const { data: org } = await supabaseAdmin
@@ -466,7 +503,9 @@ export async function listTemplates(orgId: string): Promise<MessageTemplate[]> {
   }
 
   const data = await response.json() as { data: MessageTemplate[] }
-  return data.data || []
+  const templates = data.data || []
+  templatesCache.set(orgId, { data: templates, cachedAt: Date.now() })
+  return templates
 }
 
 export async function sendTemplateMessage(
@@ -476,8 +515,6 @@ export async function sendTemplateMessage(
   languageCode: string,
   components?: Array<Record<string, unknown>>
 ): Promise<CloudApiResponse> {
-  const { phoneNumberId, accessToken } = await getOrgCredentials(orgId)
-
   const payload: Record<string, unknown> = {
     messaging_product: 'whatsapp',
     to,
@@ -489,28 +526,5 @@ export async function sendTemplateMessage(
     },
   }
 
-  const response = await fetch(
-    `${GRAPH_API_URL}/${phoneNumberId}/messages`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30_000),
-    }
-  )
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
-    if (response.status === 401 || response.status === 403) {
-      invalidateCredentialsCache(orgId)
-    }
-    throw new Error(`Template send failed: ${JSON.stringify(error)}`)
-  }
-
-  const result = await response.json() as CloudApiResponse
-  console.log(`[WhatsApp] template "${templateName}" sent — to=${to}, waMessageId=${result.messages?.[0]?.id}`)
-  return result
+  return postGraphMessage(orgId, payload, `template "${templateName}" to ${to}`)
 }

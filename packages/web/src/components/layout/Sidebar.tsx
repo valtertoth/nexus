@@ -22,8 +22,10 @@ import {
   Smartphone,
   Radio,
   Database,
+  UserCog,
 } from 'lucide-react'
 import { getInitials } from '@nexus/shared'
+import { useAuthContext } from '@/components/auth/AuthProvider'
 
 interface NavItem {
   to: string
@@ -66,9 +68,19 @@ const devNavItems: NavItem[] = [
   { to: '/dev/whatsapp', icon: Radio, label: 'WhatsApp' },
 ]
 
+// Só owner/admin veem — gestão de equipe/convites
+const teamNavItem: NavItem = { to: '/team', icon: UserCog, label: 'Equipe' }
+
 export function Sidebar() {
   const [expanded, setExpanded] = useState(false)
   const { onlineUsers } = usePresence()
+  const { profile } = useAuthContext()
+  const canManageTeam = profile?.role === 'owner' || profile?.role === 'admin'
+  const sections = canManageTeam
+    ? navSections.map((s) =>
+        s.title === 'Sistema' ? { ...s, items: [teamNavItem, ...s.items] } : s
+      )
+    : navSections
 
   return (
     <aside
@@ -92,7 +104,7 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 py-2 px-1.5 flex flex-col overflow-y-auto">
         <div className="flex-1 space-y-3">
-          {navSections.map((section) => (
+          {sections.map((section) => (
             <div key={section.title}>
               {expanded && (
                 <p className="px-2.5 pb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-600">

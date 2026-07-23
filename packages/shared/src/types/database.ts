@@ -387,6 +387,8 @@ export interface Message {
   wa_media_id: string | null
   wa_status: WaMessageStatus
   wa_timestamp: string | null
+  wa_error_code: string | null
+  wa_error_message: string | null
   ai_suggested_response: string | null
   ai_suggestion_sources: AiSuggestionSource[] | null
   ai_approved: boolean | null
@@ -417,6 +419,8 @@ export interface MessageInsert {
   wa_media_id?: string
   wa_status?: WaMessageStatus
   wa_timestamp?: string
+  wa_error_code?: string
+  wa_error_message?: string
   ai_suggested_response?: string
   ai_suggestion_sources?: AiSuggestionSource[]
   ai_approved?: boolean
@@ -433,6 +437,8 @@ export interface MessageInsert {
 export interface MessageUpdate {
   content?: string
   wa_status?: WaMessageStatus
+  wa_error_code?: string | null
+  wa_error_message?: string | null
   ai_suggested_response?: string
   ai_suggestion_sources?: AiSuggestionSource[]
   ai_approved?: boolean

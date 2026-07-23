@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { authMiddleware } from '../middleware/auth.js'
 import { apiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
-import { listTemplates, sendTemplateMessage } from '../services/whatsapp.service.js'
+import { listTemplates, sendTemplateMessage, WhatsAppSendError } from '../services/whatsapp.service.js'
 import { saveMessage, updateConversationWithMessage } from '../services/conversation.service.js'
 import { requireUUID, requireString } from '../lib/validate.js'
 import { withRetry } from '../lib/resilience.js'
@@ -72,6 +72,8 @@ templates.post('/send', async (c) => {
 
   let waMessageId: string | null = null
   let waStatus: 'sent' | 'failed' = 'sent'
+  let waErrorCode: string | null = null
+  let waErrorMessage: string | null = null
 
   try {
     const result = await withRetry(
@@ -84,8 +86,14 @@ templates.post('/send', async (c) => {
     metrics.messageSent()
   } catch (err) {
     metrics.messageFailed()
-    console.error('[Templates] Send failed:', err)
     waStatus = 'failed'
+    if (err instanceof WhatsAppSendError) {
+      waErrorCode = err.waErrorCode != null ? String(err.waErrorCode) : null
+      waErrorMessage = err.waErrorMessage
+    } else {
+      waErrorMessage = err instanceof Error ? err.message : String(err)
+    }
+    console.error(`[Templates] Send failed (code=${waErrorCode}):`, waErrorMessage)
   }
 
   // Save to database
@@ -99,13 +107,19 @@ templates.post('/send', async (c) => {
     content_type: 'text',
     wa_message_id: waMessageId || undefined,
     wa_status: waStatus,
+    wa_error_code: waErrorCode || undefined,
+    wa_error_message: waErrorMessage || undefined,
     metadata: { template_name: templateName, template_language: languageCode },
   })
 
+  // Template NÃO estende a janela de 24h — só a resposta do cliente abre a janela.
   await updateConversationWithMessage(conversationId, content, false)
 
   if (waStatus === 'failed') {
-    return c.json({ error: 'Falha ao enviar template' }, 500)
+    return c.json(
+      { id: messageId, error: waErrorMessage || 'Falha ao enviar template', wa_error_code: waErrorCode, wa_error_message: waErrorMessage },
+      502
+    )
   }
 
   return c.json({ id: messageId, waMessageId }, 201)

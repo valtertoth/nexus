@@ -25,6 +25,7 @@ import ecosystemRoutes from './routes/ecosystem.js'
 import quoteRoutes from './routes/quotes.js'
 import contactRoutes from './routes/contacts.js'
 import templateRoutes from './routes/templates.js'
+import teamRoutes from './routes/team.js'
 
 // --- Crash Protection ---
 process.on('unhandledRejection', (reason, promise) => {
@@ -195,6 +196,7 @@ app.route('/api/ecosystem', ecosystemRoutes)
 app.route('/api/quotes', quoteRoutes)
 app.route('/api/contacts', contactRoutes)
 app.route('/api/templates', templateRoutes)
+app.route('/api/team', teamRoutes)
 
 // --- Static file serving (production: frontend build) ---
 const webDistPath = resolve(process.cwd(), 'web-dist')

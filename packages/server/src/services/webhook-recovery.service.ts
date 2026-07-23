@@ -1,45 +1,42 @@
 import { supabaseAdmin } from '../lib/supabase.js'
 
+interface ClaimedWebhook {
+  id: string
+  wa_message_id: string | null
+  payload: unknown
+  attempts: number
+}
+
 /**
- * Recover pending/failed webhook payloads on server startup.
- * This catches any messages that were lost during server crashes or restarts.
+ * Recover pending/failed webhook payloads (and inline rows abandoned by a crash).
+ * Rows are claimed atomically by claim_webhook_batch (FOR UPDATE SKIP LOCKED),
+ * so a payload is never handed to two workers at once, and 'processing' rows
+ * still owned by a live inline handler (younger than 10 minutes) are left alone.
  */
 export async function recoverPendingWebhooks(
   processFn: (payload: unknown) => Promise<void>
 ): Promise<void> {
   try {
-    const { data: pending, error } = await supabaseAdmin
-      .from('webhook_queue')
-      .select('*')
-      .in('status', ['pending', 'processing', 'failed'])
-      .lt('attempts', 12)
-      .lte('next_retry_at', new Date().toISOString())
-      .order('created_at', { ascending: true })
-      .limit(100)
+    const { data: claimed, error } = await supabaseAdmin.rpc('claim_webhook_batch', {
+      p_limit: 100,
+    })
 
     if (error) {
-      console.error('[Recovery] Failed to query webhook queue:', error.message)
+      console.error('[Recovery] Failed to claim webhook batch:', error.message)
       return
     }
 
-    if (!pending || pending.length === 0) {
+    const batch = (claimed ?? []) as ClaimedWebhook[]
+
+    if (batch.length === 0) {
       console.log('[Recovery] No pending webhooks to recover')
       return
     }
 
-    console.log(`[Recovery] Found ${pending.length} pending webhook(s) to recover`)
+    console.log(`[Recovery] Claimed ${batch.length} webhook(s) to recover`)
 
-    for (const item of pending) {
+    for (const item of batch) {
       try {
-        // Mark as processing
-        await supabaseAdmin
-          .from('webhook_queue')
-          .update({
-            status: 'processing',
-            attempts: (item.attempts as number) + 1,
-          })
-          .eq('id', item.id)
-
         await processFn(item.payload)
 
         // Mark as completed
@@ -53,8 +50,8 @@ export async function recoverPendingWebhooks(
 
         console.log(`[Recovery] Successfully recovered webhook ${item.id} (msg: ${item.wa_message_id})`)
       } catch (err) {
-        const attempts = (item.attempts as number) + 1
-        const backoffMs = Math.min(30_000 * Math.pow(2, attempts), 300_000)
+        // attempts was already incremented by claim_webhook_batch
+        const backoffMs = Math.min(30_000 * Math.pow(2, item.attempts), 300_000)
         const nextRetry = new Date(Date.now() + backoffMs)
 
         await supabaseAdmin
@@ -75,21 +72,42 @@ export async function recoverPendingWebhooks(
 }
 
 /**
- * Clean up completed webhook queue entries older than 24 hours.
+ * Clean up terminal webhook queue entries older than 7 days:
+ *   - 'completed' rows (kept 7 days for incident auditing)
+ *   - 'failed' rows (dead-letters — retries are exhausted well before 7 days)
  */
 export async function cleanupWebhookQueue(): Promise<void> {
   try {
-    // Keep completed webhooks for 7 days for incident auditing
     const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
-    const { error } = await supabaseAdmin
+    const { data: completedDeleted, error: completedError } = await supabaseAdmin
       .from('webhook_queue')
       .delete()
       .eq('status', 'completed')
       .lt('created_at', cutoff)
+      .select('id')
 
-    if (error) {
-      console.error('[Recovery] Cleanup query failed:', error.message)
+    if (completedError) {
+      console.error('[Recovery] Cleanup (completed) query failed:', completedError.message)
+    }
+
+    const { data: failedDeleted, error: failedError } = await supabaseAdmin
+      .from('webhook_queue')
+      .delete()
+      .eq('status', 'failed')
+      .lt('created_at', cutoff)
+      .select('id')
+
+    if (failedError) {
+      console.error('[Recovery] Cleanup (failed) query failed:', failedError.message)
+    }
+
+    const completedCount = completedDeleted?.length ?? 0
+    const failedCount = failedDeleted?.length ?? 0
+    if (completedCount > 0 || failedCount > 0) {
+      console.log(
+        `[Recovery] Cleanup removed ${completedCount} completed + ${failedCount} failed webhook(s) older than 7d`
+      )
     }
   } catch (err) {
     console.error('[Recovery] Cleanup failed:', err)

@@ -9,6 +9,7 @@ import {
   upsertContact,
   upsertConversation,
   updateConversationWithMessage,
+  applyServiceWindowFromStatus,
   saveMessage,
   messageExists,
   getAssignedUserAiMode,
@@ -295,12 +296,11 @@ async function processIncomingMessage(
 
   if (msg.mediaId && accessToken) {
     try {
+      // downloadAndStore já tem deadline interno de MEDIA_PIPELINE_TIMEOUT_MS (60s)
+      // com AbortController — sem wrapper externo menor (o antigo 10s matava o pipeline
+      // e não abortava o fetch subjacente). Só o retry de transientes fica por fora.
       mediaData = await withRetry(
-        () => withTimeout(
-          downloadAndStore(msg.mediaId!, accessToken, orgId, conversation.id),
-          10_000,
-          `media download ${msg.mediaId}`
-        ),
+        () => downloadAndStore(msg.mediaId!, accessToken, orgId, conversation.id),
         `media download ${msg.mediaId}`,
         2,
         1000
@@ -392,9 +392,9 @@ async function processIncomingMessage(
     reply_to_message_id: msg.replyToId,
   })
 
-  // 6. Update conversation
+  // 6. Update conversation — mensagem do cliente ABRE/ESTENDE a janela de 24h
   const preview = content.length > 100 ? content.slice(0, 100) + '…' : content
-  await updateConversationWithMessage(conversation.id, preview, true)
+  await updateConversationWithMessage(conversation.id, preview, true, true)
 
   // 7. Mark as read on WhatsApp
   try {
@@ -434,10 +434,25 @@ async function processStatusUpdate(
   orgId: string,
   status: ReturnType<typeof parseWebhookPayload>['statuses'][number]
 ): Promise<void> {
-  // Update the message's wa_status
+  // Janela de 24h autoritativa: Meta manda conversation.expiration_timestamp no status.
+  if (status.conversationExpiresAt) {
+    try {
+      await applyServiceWindowFromStatus(orgId, status.recipientId, status.conversationExpiresAt)
+    } catch (err) {
+      console.error(`[Webhook] Failed to apply service window from status ${status.messageId}:`, err)
+    }
+  }
+
+  // Update the message's wa_status (+ motivo da falha, quando houver)
+  const updatePayload: Record<string, unknown> = { wa_status: status.status }
+  if (status.status === 'failed') {
+    updatePayload.wa_error_code = status.errorCode != null ? String(status.errorCode) : null
+    updatePayload.wa_error_message = status.errorMessage ?? null
+  }
+
   const { error } = await supabaseAdmin
     .from('messages')
-    .update({ wa_status: status.status })
+    .update(updatePayload)
     .eq('wa_message_id', status.messageId)
     .eq('org_id', orgId)
 

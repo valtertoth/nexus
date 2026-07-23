@@ -206,19 +206,29 @@ export async function upsertConversation(
 
 /**
  * Update conversation with latest message info.
+ *
+ * IMPORTANTE: a janela de 24h SÓ é aberta/estendida por mensagem INBOUND do cliente
+ * (extendServiceWindow=true). Sends do vendedor (texto/mídia/template) NÃO tocam a
+ * janela — só o cliente respondendo abre a janela na Meta. A fonte autoritativa da
+ * janela é o conversation.expiration_timestamp dos statuses (applyServiceWindowFromStatus);
+ * o +24h aqui é só um palpite otimista até a Meta confirmar.
  */
 export async function updateConversationWithMessage(
   conversationId: string,
   preview: string,
-  incrementUnread: boolean
+  incrementUnread: boolean,
+  extendServiceWindow = false
 ): Promise<void> {
   const now = new Date()
-  const windowExpires = new Date(now.getTime() + 24 * 60 * 60 * 1000) // +24h
 
   const updateData: Record<string, unknown> = {
     last_message_preview: preview,
     last_message_at: now.toISOString(),
-    wa_service_window_expires_at: windowExpires.toISOString(),
+  }
+
+  if (extendServiceWindow) {
+    const windowExpires = new Date(now.getTime() + 24 * 60 * 60 * 1000) // +24h
+    updateData.wa_service_window_expires_at = windowExpires.toISOString()
   }
 
   // Update conversation fields (without unread_count — that's handled atomically)
@@ -250,6 +260,43 @@ export async function updateConversationWithMessage(
         .eq('id', conversationId)
     }
   }
+}
+
+/**
+ * Persiste a janela de 24h a partir do conversation.expiration_timestamp de um status
+ * do webhook — fonte AUTORITATIVA (o valor que a própria Meta calcula). Faz lookup da
+ * conversa pelo org + wa_id do contato (recipient_id do status) e grava o expiresAt.
+ */
+export async function applyServiceWindowFromStatus(
+  orgId: string,
+  recipientWaId: string,
+  expiresAt: string
+): Promise<void> {
+  const { data: contact } = await supabaseAdmin
+    .from('contacts')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('wa_id', recipientWaId)
+    .single()
+
+  if (!contact) return
+
+  // Conversa mais recente desse contato (a que a janela se refere)
+  const { data: conv } = await supabaseAdmin
+    .from('conversations')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('contact_id', contact.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (!conv) return
+
+  await supabaseAdmin
+    .from('conversations')
+    .update({ wa_service_window_expires_at: expiresAt })
+    .eq('id', conv.id)
 }
 
 /**

@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { authMiddleware } from '../middleware/auth.js'
 import { apiRateLimit, userApiRateLimit } from '../middleware/rateLimit.js'
 import { supabaseAdmin } from '../lib/supabase.js'
-import { sendTextMessage, sendMediaMessage } from '../services/whatsapp.service.js'
+import { sendTextMessage, sendMediaMessage, isServiceWindowActive, WhatsAppSendError } from '../services/whatsapp.service.js'
 import { withRetry } from '../lib/resilience.js'
 import { downloadAndStore } from '../services/media.service.js'
 import { saveMessage, updateConversationWithMessage } from '../services/conversation.service.js'
@@ -58,7 +58,7 @@ messages.post('/send', userApiRateLimit, async (c) => {
   // Get conversation with contact wa_id
   const { data: conversation, error: convError } = await supabaseAdmin
     .from('conversations')
-    .select('id, org_id, contact_id, contacts(wa_id, wa_jid)')
+    .select('id, org_id, contact_id, wa_service_window_expires_at, contacts(wa_id, wa_jid)')
     .eq('id', conversationId)
     .single()
 
@@ -70,6 +70,13 @@ messages.post('/send', userApiRateLimit, async (c) => {
     return c.json({ error: 'Acesso negado a esta conversa' }, 403)
   }
 
+  // Gate da janela de 24h — mensagem livre só dentro da janela. Fora dela, 409 e o
+  // vendedor precisa mandar um template. NÃO salvamos mensagem fantasma.
+  const windowExpiresAt = (conversation as Record<string, unknown>).wa_service_window_expires_at as string | null
+  if (!isServiceWindowActive(windowExpiresAt)) {
+    return c.json({ error: 'window_closed', window_expired_at: windowExpiresAt }, 409)
+  }
+
   // Supabase returns related record as object (many-to-one), not array
   const contactRaw = (conversation as Record<string, unknown>).contacts as
     | { wa_id: string; wa_jid?: string }
@@ -77,7 +84,6 @@ messages.post('/send', userApiRateLimit, async (c) => {
     | null
   const contact = Array.isArray(contactRaw) ? contactRaw[0] : contactRaw
   const contactWaId = contact?.wa_id
-  const contactWaJid = contact?.wa_jid
 
   if (!contactWaId) {
     return c.json({ error: 'Contato sem WhatsApp ID' }, 400)
@@ -86,6 +92,8 @@ messages.post('/send', userApiRateLimit, async (c) => {
   // Send via WhatsApp Cloud API
   let waMessageId: string | null = null
   let waStatus: 'sent' | 'failed' = 'sent'
+  let waErrorCode: string | null = null
+  let waErrorMessage: string | null = null
 
   try {
     const result = await withRetry(
@@ -98,8 +106,14 @@ messages.post('/send', userApiRateLimit, async (c) => {
     metrics.messageSent()
   } catch (err) {
     metrics.messageFailed()
-    console.warn('[Messages] WhatsApp send failed, saving locally:', err)
     waStatus = 'failed'
+    if (err instanceof WhatsAppSendError) {
+      waErrorCode = err.waErrorCode != null ? String(err.waErrorCode) : null
+      waErrorMessage = err.waErrorMessage
+    } else {
+      waErrorMessage = err instanceof Error ? err.message : String(err)
+    }
+    console.warn(`[Messages] WhatsApp send failed (code=${waErrorCode}):`, waErrorMessage)
   }
 
   // Save to database regardless of WhatsApp delivery
@@ -112,11 +126,20 @@ messages.post('/send', userApiRateLimit, async (c) => {
     content_type: 'text',
     wa_message_id: waMessageId || undefined,
     wa_status: waStatus,
+    wa_error_code: waErrorCode || undefined,
+    wa_error_message: waErrorMessage || undefined,
   })
 
-  // Update conversation preview
+  // Update conversation preview (send do vendedor NÃO estende a janela)
   const preview = content.length > 100 ? content.slice(0, 100) + '…' : content
   await updateConversationWithMessage(conversationId, preview, false)
+
+  if (waStatus === 'failed') {
+    return c.json(
+      { id: messageId, error: waErrorMessage || 'Falha ao enviar mensagem', wa_error_code: waErrorCode, wa_error_message: waErrorMessage },
+      502
+    )
+  }
 
   return c.json({ id: messageId, waMessageId }, 201)
 })
@@ -252,7 +275,7 @@ messages.post('/send-media', userApiRateLimit, async (c) => {
   // Get conversation with contact wa_id
   const { data: conversation, error: convError } = await supabaseAdmin
     .from('conversations')
-    .select('id, org_id, contact_id, contacts(wa_id, wa_jid)')
+    .select('id, org_id, contact_id, wa_service_window_expires_at, contacts(wa_id, wa_jid)')
     .eq('id', conversationId)
     .single()
 
@@ -264,13 +287,18 @@ messages.post('/send-media', userApiRateLimit, async (c) => {
     return c.json({ error: 'Acesso negado a esta conversa' }, 403)
   }
 
+  // Gate da janela de 24h antes de qualquer upload (evita mídia órfã no storage)
+  const windowExpiresAt = (conversation as Record<string, unknown>).wa_service_window_expires_at as string | null
+  if (!isServiceWindowActive(windowExpiresAt)) {
+    return c.json({ error: 'window_closed', window_expired_at: windowExpiresAt }, 409)
+  }
+
   const contactRaw = (conversation as Record<string, unknown>).contacts as
     | { wa_id: string; wa_jid?: string }
     | { wa_id: string; wa_jid?: string }[]
     | null
   const contact = Array.isArray(contactRaw) ? contactRaw[0] : contactRaw
   const contactWaId = contact?.wa_id
-  const contactWaJid = contact?.wa_jid
 
   if (!contactWaId) {
     return c.json({ error: 'Contato sem WhatsApp ID' }, 400)
@@ -308,6 +336,8 @@ messages.post('/send-media', userApiRateLimit, async (c) => {
   // Send via WhatsApp Cloud API
   let waMessageId: string | null = null
   let waStatus: 'sent' | 'failed' = 'sent'
+  let waErrorCode: string | null = null
+  let waErrorMessage: string | null = null
 
   try {
     const result = await withRetry(
@@ -329,8 +359,14 @@ messages.post('/send-media', userApiRateLimit, async (c) => {
     console.log(`[Messages] Media ${contentType} enviada via Cloud API:`, waMessageId)
   } catch (err) {
     metrics.messageFailed()
-    console.warn('[Messages] Cloud API media send failed:', err)
     waStatus = 'failed'
+    if (err instanceof WhatsAppSendError) {
+      waErrorCode = err.waErrorCode != null ? String(err.waErrorCode) : null
+      waErrorMessage = err.waErrorMessage
+    } else {
+      waErrorMessage = err instanceof Error ? err.message : String(err)
+    }
+    console.warn(`[Messages] Cloud API media send failed (code=${waErrorCode}):`, waErrorMessage)
   }
 
   // Determine display content
@@ -346,6 +382,8 @@ messages.post('/send-media', userApiRateLimit, async (c) => {
     content_type: contentType as ContentType,
     wa_message_id: waMessageId || undefined,
     wa_status: waStatus,
+    wa_error_code: waErrorCode || undefined,
+    wa_error_message: waErrorMessage || undefined,
     media_url: mediaUrl,
     media_mime_type: mimeType,
     media_filename: filename,
@@ -355,6 +393,13 @@ messages.post('/send-media', userApiRateLimit, async (c) => {
   // Update conversation preview
   const preview = displayContent.length > 100 ? displayContent.slice(0, 100) + '…' : displayContent
   await updateConversationWithMessage(conversationId, preview, false)
+
+  if (waStatus === 'failed') {
+    return c.json(
+      { id: messageId, error: waErrorMessage || 'Falha ao enviar mídia', wa_error_code: waErrorCode, wa_error_message: waErrorMessage, mediaUrl },
+      502
+    )
+  }
 
   return c.json({
     id: messageId,
@@ -391,7 +436,7 @@ messages.post('/send-media-url', userApiRateLimit, async (c) => {
   // Get conversation with contact wa_id
   const { data: conversation, error: convError } = await supabaseAdmin
     .from('conversations')
-    .select('id, org_id, contact_id, contacts(wa_id)')
+    .select('id, org_id, contact_id, wa_service_window_expires_at, contacts(wa_id)')
     .eq('id', conversationId)
     .single()
 
@@ -401,6 +446,12 @@ messages.post('/send-media-url', userApiRateLimit, async (c) => {
 
   if (conversation.org_id !== orgId) {
     return c.json({ error: 'Acesso negado a esta conversa' }, 403)
+  }
+
+  // Gate da janela de 24h antes de baixar/subir a mídia (evita órfão no storage)
+  const windowExpiresAt = (conversation as Record<string, unknown>).wa_service_window_expires_at as string | null
+  if (!isServiceWindowActive(windowExpiresAt)) {
+    return c.json({ error: 'window_closed', window_expired_at: windowExpiresAt }, 409)
   }
 
   const contactRaw = (conversation as Record<string, unknown>).contacts as
@@ -486,6 +537,8 @@ messages.post('/send-media-url', userApiRateLimit, async (c) => {
   // Send via WhatsApp
   let waMessageId: string | null = null
   let waStatus: 'sent' | 'failed' = 'sent'
+  let waErrorCode: string | null = null
+  let waErrorMessage: string | null = null
 
   try {
     const result = await withRetry(
@@ -506,8 +559,14 @@ messages.post('/send-media-url', userApiRateLimit, async (c) => {
     metrics.messageSent()
   } catch (err) {
     metrics.messageFailed()
-    console.warn('[Messages] Cloud API media-url send failed:', err)
     waStatus = 'failed'
+    if (err instanceof WhatsAppSendError) {
+      waErrorCode = err.waErrorCode != null ? String(err.waErrorCode) : null
+      waErrorMessage = err.waErrorMessage
+    } else {
+      waErrorMessage = err instanceof Error ? err.message : String(err)
+    }
+    console.warn(`[Messages] Cloud API media-url send failed (code=${waErrorCode}):`, waErrorMessage)
   }
 
   const displayContent = caption || `[${contentType.charAt(0).toUpperCase() + contentType.slice(1)}]`
@@ -521,6 +580,8 @@ messages.post('/send-media-url', userApiRateLimit, async (c) => {
     content_type: contentType as ContentType,
     wa_message_id: waMessageId || undefined,
     wa_status: waStatus,
+    wa_error_code: waErrorCode || undefined,
+    wa_error_message: waErrorMessage || undefined,
     media_url: mediaUrl,
     media_mime_type: mimeType,
     media_filename: filename,
@@ -529,6 +590,13 @@ messages.post('/send-media-url', userApiRateLimit, async (c) => {
 
   const preview = caption || `Foto do produto`
   await updateConversationWithMessage(conversationId, preview, false)
+
+  if (waStatus === 'failed') {
+    return c.json(
+      { id: messageId, error: waErrorMessage || 'Falha ao enviar mídia', wa_error_code: waErrorCode, wa_error_message: waErrorMessage, mediaUrl },
+      502
+    )
+  }
 
   return c.json({ id: messageId, waMessageId, mediaUrl }, 201)
 })

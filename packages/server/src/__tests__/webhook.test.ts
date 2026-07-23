@@ -262,6 +262,48 @@ describe('parseWebhookPayload', () => {
     expect(result.statuses[0].errorMessage).toBe('Re-engagement message')
   })
 
+  it('should parse conversation.expiration_timestamp as the authoritative service window', () => {
+    const expUnix = Math.floor(Date.now() / 1000) + 12 * 60 * 60 // +12h
+    const payload = makePayload({
+      statuses: [
+        {
+          id: 'wamid.sent003',
+          status: 'sent',
+          timestamp: '1700000000',
+          recipient_id: '5511999001001',
+          conversation: {
+            id: 'CONV_abc',
+            expiration_timestamp: String(expUnix),
+            origin: { type: 'service' },
+          },
+        },
+      ],
+    })
+
+    const result = parseWebhookPayload(payload)
+    const status = result.statuses[0]
+
+    expect(status.conversationId).toBe('CONV_abc')
+    expect(status.conversationExpiresAt).toBe(new Date(expUnix * 1000).toISOString())
+  })
+
+  it('should leave conversationExpiresAt undefined when no conversation object', () => {
+    const payload = makePayload({
+      statuses: [
+        {
+          id: 'wamid.sent004',
+          status: 'delivered',
+          timestamp: '1700000000',
+          recipient_id: '5511999001001',
+        },
+      ],
+    })
+
+    const result = parseWebhookPayload(payload)
+    expect(result.statuses[0].conversationExpiresAt).toBeUndefined()
+    expect(result.statuses[0].conversationId).toBeUndefined()
+  })
+
   it('should handle empty payload gracefully', () => {
     const payload: WebhookPayload = {
       object: 'whatsapp_business_account',

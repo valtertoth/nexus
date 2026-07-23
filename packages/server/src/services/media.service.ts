@@ -1,11 +1,25 @@
 import { supabaseAdmin } from '../lib/supabase.js'
 import { getMediaUrl } from './whatsapp.service.js'
+import { withTimeout } from '../lib/resilience.js'
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB (Supabase Storage standard upload limit)
 
 /**
+ * Single end-to-end deadline for the whole media pipeline (metadata + download
+ * + upload). It is deliberately larger than every internal step timeout so the
+ * pipeline never fails before its own steps do. The caller MUST NOT wrap this in
+ * a shorter external timeout — doing so would reject while this abort-aware
+ * pipeline keeps the underlying download running.
+ */
+export const MEDIA_PIPELINE_TIMEOUT_MS = 60_000
+
+/**
  * Downloads media from WhatsApp Cloud API and stores it in Supabase Storage.
  * This is critical because Meta URLs expire in ~3 days.
+ *
+ * A single 60s deadline governs the whole pipeline. An AbortController is
+ * threaded end-to-end so that when the deadline is hit the underlying download
+ * fetch is actually aborted (not left running consuming memory).
  *
  * Flow:
  * 1. Get temporary URL from Meta Graph API
@@ -26,6 +40,28 @@ export async function downloadAndStore(
   filename: string
   buffer: Buffer
 }> {
+  const controller = new AbortController()
+  return withTimeout(
+    runMediaPipeline(mediaId, accessToken, orgId, conversationId, controller.signal),
+    MEDIA_PIPELINE_TIMEOUT_MS,
+    `media pipeline ${mediaId}`,
+    controller
+  )
+}
+
+async function runMediaPipeline(
+  mediaId: string,
+  accessToken: string,
+  orgId: string,
+  conversationId: string,
+  signal: AbortSignal
+): Promise<{
+  localUrl: string
+  mimeType: string
+  fileSize: number
+  filename: string
+  buffer: Buffer
+}> {
   // 1. Get temporary URL + metadata from Meta
   const mediaInfo = await getMediaUrl(accessToken, mediaId)
 
@@ -39,10 +75,11 @@ export async function downloadAndStore(
     )
   }
 
-  // 3. Download the file
+  // 3. Download the file — the shared signal aborts the fetch when the pipeline
+  // deadline fires, so a hung download stops consuming memory.
   const response = await fetch(mediaInfo.url, {
     headers: { Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(30_000),
+    signal,
   })
 
   if (!response.ok) {
