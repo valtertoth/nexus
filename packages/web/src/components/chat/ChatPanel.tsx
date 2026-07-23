@@ -9,7 +9,9 @@ import { MessageComposer } from './MessageComposer'
 import { AiComposer } from './AiComposer'
 import { QuoteBuilder } from './QuoteBuilder'
 import { TemplatePicker } from './TemplatePicker'
-import { Loader2, Upload, Clock, FileText } from 'lucide-react'
+import { NotesPanel } from './NotesPanel'
+import { FollowupButton } from '@/components/followups/FollowupButton'
+import { Loader2, Upload, Clock, FileText, StickyNote } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatPhone } from '@nexus/shared'
 import type { ConversationWithRelations } from '@/stores/conversationStore'
@@ -67,6 +69,7 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
   const [composerInitialValue, setComposerInitialValue] = useState('')
   const [quoteOpen, setQuoteOpen] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
+  const [notesOpen, setNotesOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isNearBottomRef = useRef(true)
   const prevMessageCountRef = useRef<number>(0)
@@ -259,6 +262,18 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
           onOpenQuote={() => setQuoteOpen(true)}
         />
 
+        {/* Ações da conversa: follow-up agendado + notas internas do time */}
+        <div className="flex items-center justify-end gap-1 px-3 py-1 border-b border-zinc-100 bg-white">
+          <FollowupButton conversationId={conversation.id} />
+          <button
+            onClick={() => setNotesOpen((v) => !v)}
+            className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${notesOpen ? 'bg-zinc-200 text-zinc-900' : 'text-zinc-500 hover:bg-zinc-100'}`}
+          >
+            <StickyNote className="w-3.5 h-3.5" />
+            Notas
+          </button>
+        </div>
+
         {/* Messages — virtualized for performance */}
         <div className="flex-1 overflow-y-auto bg-zinc-100" ref={scrollRef} onScroll={handleScroll}>
           {!hasLoaded ? (
@@ -345,6 +360,13 @@ export function ChatPanel({ conversation, sendMessageRef, insertInComposerRef }:
           }
         />
       </div>
+
+      {/* Painel de notas internas (coluna à direita; some quando fechado) */}
+      <NotesPanel
+        conversationId={conversation.id}
+        open={notesOpen}
+        onClose={() => setNotesOpen(false)}
+      />
 
       {/* Template Picker (para janela expirada) */}
       <TemplatePicker

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../lib/supabase.js'
+import { autoAssignConversation } from './assignment.service.js'
 import type { Contact, Conversation, MessageInsert } from '@nexus/shared'
 
 /**
@@ -140,18 +141,11 @@ export async function upsertConversation(
     }
   }
 
-  // 3. Create brand new conversation — auto-assign if org has few users
-  let assignedTo: string | null = null
-
-  const { data: orgUsers } = await supabaseAdmin
-    .from('users')
-    .select('id')
-    .eq('org_id', orgId)
-    .limit(4)
-
-  if (orgUsers && orgUsers.length > 0 && orgUsers.length <= 3) {
-    assignedTo = orgUsers[0].id
-  }
+  // 3. Create brand new conversation. Atribuição é responsabilidade ÚNICA do
+  // motor (organizations.assign_mode) via autoAssignConversation abaixo — o
+  // bloco naive antigo ("atribui ao 1º usuário se org pequeno") foi removido
+  // para o guard .is('assigned_to', null) do motor funcionar.
+  const assignedTo: string | null = null
 
   const { data: created, error } = await supabaseAdmin
     .from('conversations')
@@ -200,6 +194,9 @@ export async function upsertConversation(
         })
     }
   })
+
+  const motorAgent = await autoAssignConversation(orgId, created.id, contactId)
+  if (motorAgent) (created as { assigned_to: string | null }).assigned_to = motorAgent
 
   return created as Conversation
 }

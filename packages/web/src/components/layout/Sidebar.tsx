@@ -23,6 +23,8 @@ import {
   Radio,
   Database,
   UserCog,
+  Eye,
+  BellRing,
 } from 'lucide-react'
 import { getInitials } from '@nexus/shared'
 import { useAuthContext } from '@/components/auth/AuthProvider'
@@ -46,6 +48,7 @@ const navSections: NavSection[] = [
       { to: '/', icon: MessageSquare, label: 'Inbox' },
       { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/contacts', icon: Users, label: 'Contatos' },
+      { to: '/followups', icon: BellRing, label: 'Follow-ups' },
     ],
   },
   {
@@ -68,8 +71,9 @@ const devNavItems: NavItem[] = [
   { to: '/dev/whatsapp', icon: Radio, label: 'WhatsApp' },
 ]
 
-// Só owner/admin veem — gestão de equipe/convites
+// Só owner/admin veem — gestão de equipe/convites + visão de supervisão
 const teamNavItem: NavItem = { to: '/team', icon: UserCog, label: 'Equipe' }
+const supervisorNavItem: NavItem = { to: '/supervisor', icon: Eye, label: 'Supervisão' }
 
 export function Sidebar() {
   const [expanded, setExpanded] = useState(false)
@@ -77,9 +81,11 @@ export function Sidebar() {
   const { profile } = useAuthContext()
   const canManageTeam = profile?.role === 'owner' || profile?.role === 'admin'
   const sections = canManageTeam
-    ? navSections.map((s) =>
-        s.title === 'Sistema' ? { ...s, items: [teamNavItem, ...s.items] } : s
-      )
+    ? navSections.map((s) => {
+        if (s.title === 'Sistema') return { ...s, items: [teamNavItem, ...s.items] }
+        if (s.title === 'Operacao') return { ...s, items: [...s.items, supervisorNavItem] }
+        return s
+      })
     : navSections
 
   return (

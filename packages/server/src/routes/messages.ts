@@ -7,6 +7,7 @@ import { sendTextMessage, sendMediaMessage, isServiceWindowActive, WhatsAppSendE
 import { withRetry } from '../lib/resilience.js'
 import { downloadAndStore } from '../services/media.service.js'
 import { saveMessage, updateConversationWithMessage } from '../services/conversation.service.js'
+import { markFirstResponse } from '../services/assignment.service.js'
 import { requireString, requireUUID, requireSafeUrl } from '../lib/validate.js'
 import { metrics } from '../lib/metrics.js'
 import type { ContentType } from '@nexus/shared'
@@ -140,6 +141,8 @@ messages.post('/send', userApiRateLimit, async (c) => {
       502
     )
   }
+
+  if (waStatus === 'sent') void markFirstResponse(conversationId)
 
   return c.json({ id: messageId, waMessageId }, 201)
 })

@@ -26,6 +26,10 @@ import quoteRoutes from './routes/quotes.js'
 import contactRoutes from './routes/contacts.js'
 import templateRoutes from './routes/templates.js'
 import teamRoutes from './routes/team.js'
+import conversationRoutes from './routes/conversations.js'
+import supervisorRoutes from './routes/supervisor.js'
+import notesRoutes from './routes/notes.js'
+import followupRoutes from './routes/followups.js'
 
 // --- Crash Protection ---
 process.on('unhandledRejection', (reason, promise) => {
@@ -197,6 +201,10 @@ app.route('/api/quotes', quoteRoutes)
 app.route('/api/contacts', contactRoutes)
 app.route('/api/templates', templateRoutes)
 app.route('/api/team', teamRoutes)
+app.route('/api/conversations', conversationRoutes)
+app.route('/api/supervisor', supervisorRoutes)
+app.route('/api/notes', notesRoutes)
+app.route('/api/followups', followupRoutes)
 
 // --- Static file serving (production: frontend build) ---
 const webDistPath = resolve(process.cwd(), 'web-dist')

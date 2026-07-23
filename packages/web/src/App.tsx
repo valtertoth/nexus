@@ -10,6 +10,8 @@ import { ConnectionStatus } from '@/components/ConnectionStatus'
 import Login from '@/pages/Login'
 import ProfileSelector from '@/pages/ProfileSelector'
 import Team from '@/pages/Team'
+import Supervisor from '@/pages/Supervisor'
+import Followups from '@/pages/Followups'
 import Inbox from '@/pages/Inbox'
 import Contacts from '@/pages/Contacts'
 import Knowledge from '@/pages/Knowledge'
@@ -74,6 +76,8 @@ export default function App() {
                 <Route path="/brain" element={<ErrorBoundary><BrainPage /></ErrorBoundary>} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
                 <Route path="/team" element={<ErrorBoundary><RoleGuard><Team /></RoleGuard></ErrorBoundary>} />
+                <Route path="/supervisor" element={<ErrorBoundary><RoleGuard><Supervisor /></RoleGuard></ErrorBoundary>} />
+                <Route path="/followups" element={<ErrorBoundary><Followups /></ErrorBoundary>} />
                 <Route path="/dev/simulator" element={<ErrorBoundary><Simulator /></ErrorBoundary>} />
                 <Route path="/dev/whatsapp" element={<ErrorBoundary><WhatsAppConnect /></ErrorBoundary>} />
               </Route>
